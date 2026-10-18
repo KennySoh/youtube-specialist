@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Pipeline scratch / logs (transcripts and index.json ARE committed)
+youtuber/*/data/_tmp_subs/
+youtuber/*/data/refresh.log
+
+# Local Claude Code settings (skills in .claude/skills/ are committed)
+.claude/settings.local.json
+
+# Secrets
+.env
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Your own channels, skills and notes stay local — the repo ships only the tool.
+youtuber/
+.claude/skills/
+advise*.md
+plan.md

@@ -1,18 +1,1 @@
-#!/usr/bin/env bash
-# ./yt setup | add | grab | update | list | todo | import | bookmarklet    (./yt --help for details)
-# YouTube → knowledge-library/youtube/. Code: pipelines/video-pipeline/youtube_ingestion/
-set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")"
-unset PYTHONPATH  # e.g. ROS puts its own packages there; they break the venv
-
-if [[ "${1:-}" == setup ]]; then
-    if python3 -c "import ensurepip" 2>/dev/null; then python3 -m venv .venv
-    elif command -v uv >/dev/null; then uv venv -q --seed --allow-existing .venv
-    else echo "Need python3-venv (sudo apt install python3-venv) or uv" >&2; exit 1; fi
-    .venv/bin/pip install -q -r pipelines/video-pipeline/requirements.txt
-    echo "✓ ready ($(.venv/bin/yt-dlp --version))"
-    exit
-fi
-[[ -x .venv/bin/python ]] || { echo "No .venv yet — run: ./yt setup" >&2; exit 1; }
-if [[ -f .env ]]; then set -a; source .env; set +a; fi
-PATH="$PWD/.venv/bin:$PATH" PYTHONPATH="$PWD/pipelines/video-pipeline" exec .venv/bin/python -m youtube_ingestion "$@"
+scripts/yt

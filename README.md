@@ -16,6 +16,7 @@ Your knowledge. Your experts. Your personal AI.
 | `knowledge-library/` | Knowledge library | Searchable Markdown: `youtube/`, `books/`, `notes/` (later) |
 | `experts/` | AI experts | `experts/<name>/expert.md`: who the expert is, which sources it may use, how it answers |
 | `.claude/skills/` | Claude integration | `SKILL.md` per expert: when Claude uses it, then "read expert.md" |
+| `scripts/` | Commands | `scripts/yt`, `scripts/books`; `./yt` and `./books` at the root are symlinks to them |
 
 `raw/`, `knowledge-library/`, `experts/` and `.claude/skills/` are git-ignored: the repo ships only
 the tools. `templates/` has a starting `expert.md` and `SKILL.md`.

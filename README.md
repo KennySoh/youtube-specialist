@@ -38,7 +38,11 @@ Optional: `cp .env.example .env` to change the daily limit or the pause between 
 ./yt grab "https://youtu.be/<id>" <topic>                        # just one video, into a topic
 ./yt update [slug]                                               # new videos + missing transcripts
 ./yt list                                                        # progress and today's budget (no network)
+./yt todo [slug] [--open N]                                      # what's still missing, hardest first (no network)
+./yt import [dir]                                                # bookmarklet captures → transcripts (no network)
 ```
+
+`./yt update` with no slug takes the channels in turn, so one big channel can't use up the day's budget.
 
 Then, in Claude Code: *"create the some-channel skill from templates/channel-skill.md"*, and ask `/some-channel …`.
 
@@ -59,6 +63,20 @@ time: anything already fetched is skipped. To run it daily with cron (`crontab -
 
 A 429 stops every request for 24 h. `./yt list` shows when the block ends. Wait it out: don't
 delete `library/.guard.json` or retry by hand.
+
+## Videos the tool can't get (one click each)
+
+Videos that failed 3 times, or that you want before the queue reaches them, can be saved from your
+own browser:
+
+1. `./yt bookmarklet` prints a `javascript:` URL: save it as a bookmark called *Save transcript*.
+2. `./yt todo --open 5` opens the next 5 missing videos in your browser.
+3. On each: open the transcript panel (*Show transcript*, or *In this video › Timeline*), then click the bookmark.
+   It saves `<id>.transcript.json` to your Downloads. It reads only what's on screen and sends nothing.
+4. `./yt import` (default `~/Downloads`) writes the transcripts (`transcript_source: browser`),
+   updates `INDEX.md` and `missing.log`, and moves the files to `library/_imported/`.
+
+Only videos already in a collection are imported. With Docker, run `import` locally or mount the folder.
 
 # Books
 

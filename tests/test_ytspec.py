@@ -143,3 +143,75 @@ def test_record_failure_counts_attempts():
     assert statuses["abcdefghijk"] == {"status": "failed", "attempts": 2, "error": "y"}
     library.record_failure(statuses, "abcdefghijk", "failed", "z")
     assert library.gave_up(statuses["abcdefghijk"])
+
+
+def test_round_robin_interleaves_channels():
+    assert cli.round_robin([["a1", "a2", "a3"], [], ["b1"]]) == ["a1", "b1", "a2", "a3"]
+
+
+def test_update_many_takes_turns(monkeypatch):
+    big, small = Collection.create("big", "u1", "Big"), Collection.create("small", "u2", "Small")
+    big.save_videos([Video(id=f"big{i:08d}") for i in range(3)])
+    small.save_videos([Video(id="small000000")])
+    order = []
+    monkeypatch.setattr(cli, "list_if_due", lambda c: None)
+    monkeypatch.setattr(youtube, "fetch_captions", lambda vid: order.append(vid) or ("auto", [Segment(0, "x")]))
+    cli.update_many([big, small])
+    assert order[:2] == ["big00000000", "small000000"]
+
+
+TIMELINE_PANEL = """In this video
+Timeline
+Chapter 1: Intro
+0:00
+0 seconds
+hello there
+1:05
+1 minute, 5 seconds
+second line
+1:02:03
+1 hour, 2 minutes, 3 seconds
+late one
+"""
+
+
+def test_panel_text_parsing():
+    from ytspec import browser
+    segs = browser.parse_panel_text(TIMELINE_PANEL)
+    assert [(s.start, s.text) for s in segs] == [(0, "hello there"), (65, "second line"), (3723, "late one")]
+
+
+def test_import_writes_transcript_and_moves_file(tmp_path):
+    c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
+    c.save_videos([VIDEO])
+    library.record_failure(st := {}, VIDEO.id, "failed", "x")
+    c.save_statuses(st)
+    downloads = tmp_path / "dl"
+    downloads.mkdir()
+    (downloads / f"{VIDEO.id}.transcript.json").write_text(json.dumps(
+        {"video_id": VIDEO.id, "segments": [{"t": "0:31", "text": "b"}, {"t": "0:00", "text": "a"}]}))
+    (downloads / "zzzzzzzzzzz.transcript.json").write_text(json.dumps({"video_id": "zzzzzzzzzzz", "panel_text": "0:00\nhi"}))
+    (downloads / "yyyyyyyyyyy.transcript.json").write_text(json.dumps({"video_id": "yyyyyyyyyyy", "segments": []}))
+    cli.import_command(type("Args", (), {"dir": str(downloads)})())
+    [path] = c.transcript_files().values()
+    fm, body = transcript.read(path)
+    assert fm["transcript_source"] == "browser" and fm["published_at"] == "2026-01-02"
+    assert "[00:00] a\n[00:31] b" in body
+    assert c.statuses() == {}
+    assert (library.ROOT / "_imported" / f"{VIDEO.id}.transcript.json").exists()
+    assert sorted(p.name for p in downloads.iterdir()) == ["yyyyyyyyyyy.transcript.json", "zzzzzzzzzzz.transcript.json"]
+    assert path.name in (c.transcripts / "INDEX.md").read_text()
+
+
+def test_todo_lists_given_up_videos_first(capsys):
+    c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
+    c.save_videos([Video(id="new00000000", title="new"), Video(id="hard0000000", title="hard"),
+                   Video(id="none0000000", title="no captions")])
+    st: dict = {}
+    for _ in range(3):
+        library.record_failure(st, "hard0000000", "failed", "x")
+    library.record_failure(st, "none0000000", "no_captions", "x")
+    c.save_statuses(st)
+    cli.todo_command(type("Args", (), {"slug": None, "n": 20, "open": 0})())
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if "ch/" in ln]
+    assert ["hard0000000" in lines[0], "new00000000" in lines[1], len(lines)] == [True, True, 2]

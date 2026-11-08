@@ -21,6 +21,9 @@ answer questions as a given YouTuber and cite `[mm:ss]` timestamps.
 ./yt grab <video_url> <topic>           one video into a hand-picked "topic" collection
 ./yt update [slug]                      list new videos + fetch missing transcripts (all channels or one)
 ./yt list                               progress + guard state, no network
+./yt todo [slug] [-n N] [--open N]      missing videos, gave-up ones first, no network
+./yt import [dir]                       bookmarklet captures → transcripts (source: browser), no network
+./yt bookmarklet                        print the Save transcript bookmarklet
 ```
 
 `./yt` is a 14-line bash wrapper. It runs `setup`, loads `.env`, then runs `python -m ytspec`.
@@ -47,6 +50,7 @@ ytspec/
   __main__.py   175   argparse commands; fetch loop (fetch_transcripts); update = list + fetch + write index; file lock (fcntl)
   youtube.py    137   all network: list_channel (yt-dlp subprocess), lookup_video (oEmbed), fetch_captions (youtube-transcript-api)
   guard.py       73   budget/pace/block; state in library/.guard.json; allow(paced) raises Stop
+  browser.py         Track B: parse bookmarklet captures (*.transcript.json); save_transcript.js is the bookmarklet
   transcript.py      Video/Segment dataclasses and the transcript file format (name, frontmatter, [mm:ss] paragraphs)
   library.py         Collection (all disk I/O), INDEX.md, missing.log, status records (record_failure, gave_up)
 tests/test_ytspec.py  19 tests, no network (fetch_captions is monkeypatched)

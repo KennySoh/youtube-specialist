@@ -8,7 +8,8 @@ knowledge-acquisition/raw/
 # Rate-limit guard, run lock, video lists, status, books.txt, OCR caches
 knowledge-acquisition/state/
 # Processed transcripts, chapters, notes
-knowledge-library/
+knowledge-library/*
+!knowledge-library/.gitkeep
 # Old location, before scripts/migrate-storage.py
 /raw/
 # Your experts, except the template

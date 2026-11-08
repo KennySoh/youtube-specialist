@@ -5,6 +5,7 @@ services:
     user: "1000:1000"
     volumes:
       - ./knowledge-library/youtube:/library
+      - ./raw/youtube:/raw
       - /etc/localtime:/etc/localtime:ro   # same day boundary for the daily budget as the host
     env_file:
       - path: .env

@@ -1,8 +1,14 @@
-"""Every request to YouTube, and nothing else. Each one asks the guard first.
+"""ACQUIRE: get a video's metadata and captions. Two ways in:
+
+1. From YouTube: every request we make, and each one asks the request guard first.
 
 - list_channel:   a channel's videos (yt-dlp; it never fetches captions, see README "Lessons learned")
 - lookup_video:   a video URL → title and channel (oEmbed, a small JSON lookup)
 - fetch_captions: a video's English captions (youtube-transcript-api; never a machine translation)
+
+2. From your own browser (no requests): the bookmarklet (save_transcript.js) saves the open transcript
+   panel as <video_id>.transcript.json: {video_id, title, channel, url, captured_at, segments: [{t, text}],
+   panel_text}. read_capture() turns it into segments; ./yt import stores them (transcript_source: browser).
 """
 from __future__ import annotations
 
@@ -10,11 +16,12 @@ import html
 import json
 import re
 import subprocess
+from pathlib import Path
 
 import requests
 
 from . import request_guard
-from .transcript import Segment, Video
+from .process import Segment, Video
 
 VIDEO_URL = re.compile(r"(?:[?&]v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})")
 LANGUAGES = ["en", "en-US", "en-GB"]
@@ -140,3 +147,54 @@ def fetch_captions(video_id: str) -> tuple[str, list[Segment]]:
     if not "".join(s.text for s in segments).strip():  # never save an empty or error page as a transcript
         raise NoTranscript("failed", f"captions came back empty ({len(segments)} segments)")
     return ("auto" if t.is_generated else "manual"), segments
+
+
+# --- browser captures (no network) ---------------------------------------------------------------
+
+TIME = re.compile(r"^(?:(\d+):)?(\d{1,2}):(\d{2})$")
+# Lines in the panel that aren't caption text: spoken-out times ("1 minute, 5 seconds"), chapter headings.
+SPOKEN_TIME = re.compile(r"^\d+ (?:hours?|minutes?|seconds?)(?:, \d+ (?:hours?|minutes?|seconds?))*$")
+CHAPTER = re.compile(r"^Chapter \d+")
+
+
+class BadCapture(Exception):
+    """A saved file we can't turn into a transcript."""
+
+
+def seconds(t: str) -> float:
+    """'1:23' → 83, '1:02:03' → 3723."""
+    if not (m := TIME.match(t.strip())):
+        raise BadCapture(f"not a timestamp: {t!r}")
+    h, m_, s = m.groups()
+    return int(h or 0) * 3600 + int(m_) * 60 + int(s)
+
+
+def parse_panel_text(text: str) -> list[Segment]:
+    """The panel's visible text: a timestamp line, then the caption on the next real line."""
+    segments, start = [], None
+    for line in (ln.strip() for ln in text.splitlines()):
+        if not line or SPOKEN_TIME.match(line) or CHAPTER.match(line):
+            continue
+        if TIME.match(line):
+            start = seconds(line)
+        elif start is not None:
+            segments.append(Segment(start, line))
+            start = None
+    return segments
+
+
+def read_capture(path: Path) -> tuple[dict, list[Segment]]:
+    """(the file's fields, segments). Raises BadCapture."""
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as err:
+        raise BadCapture(f"unreadable: {err}") from err
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", str(data.get("video_id", ""))):
+        raise BadCapture("no video_id")
+    segments = [Segment(seconds(s["t"]), s["text"].strip()) for s in data.get("segments") or [] if s.get("text", "").strip()]
+    if not segments:
+        segments = parse_panel_text(data.get("panel_text") or "")
+    if not segments:
+        raise BadCapture("0 segments (was the transcript panel open?)")
+    segments.sort(key=lambda s: s.start)
+    return data, segments

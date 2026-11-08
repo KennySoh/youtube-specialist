@@ -1,4 +1,6 @@
-"""Everything on disk. No network.
+"""STORE: everything on disk. No network.
+
+raw/youtube/<slug>/<video_id>.json          captions as fetched (or <video_id>.browser.json, a bookmarklet capture)
 
 knowledge-library/youtube/<slug>/           one collection
   channel_url, channel_name   channel collections only (no channel_url = topic collection)
@@ -12,16 +14,18 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import shutil
 import time
 from pathlib import Path
 
 import yaml
 
-from . import transcript
-from .transcript import Segment, Video
+from . import process
+from .process import Segment, Video
 
 # YT_LIBRARY overrides it (Docker, tests); otherwise <repo>/knowledge-library/youtube, wherever ./yt is run from.
 ROOT = Path(os.environ.get("YT_LIBRARY") or Path(__file__).resolve().parents[3] / "knowledge-library" / "youtube")
+RAW = Path(os.environ.get("YT_RAW") or Path(__file__).resolve().parents[3] / "raw" / "youtube")
 MAX_ATTEMPTS = 3        # a failed video is tried again on the next runs, this many times in all
 
 
@@ -51,6 +55,7 @@ class Collection:
         self.slug = slug
         self.dir = ROOT / slug
         self.transcripts = self.dir / "transcripts"
+        self.raw = RAW / slug
 
     @staticmethod
     def all() -> list[Collection]:
@@ -101,11 +106,22 @@ class Collection:
 
     def transcript_files(self) -> dict[str, Path]:
         """video id → transcript file."""
-        return {m.group(1): f for f in self.transcripts.glob("*.md") if (m := transcript.FILE_ID.search(f.name))}
+        return {m.group(1): f for f in self.transcripts.glob("*.md") if (m := process.FILE_ID.search(f.name))}
+
+    def save_raw(self, video: Video, captions: str, segments: list[Segment]) -> None:
+        """The captions exactly as fetched, so a transcript can be rebuilt without asking YouTube again."""
+        save_json(self.raw / f"{video.id}.json", {
+            "video_id": video.id, "captions": captions, "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "segments": [dataclasses.asdict(s) for s in segments]})
+
+    def keep_capture(self, path: Path, video_id: str) -> None:
+        """Move an imported bookmarklet file into raw/ next to the fetched captions."""
+        self.raw.mkdir(parents=True, exist_ok=True)
+        shutil.move(path, self.raw / f"{video_id}.browser.json")
 
     def write_transcript(self, video: Video, captions: str, segments: list[Segment]) -> None:
-        write_atomic(self.transcripts / transcript.file_name(video.published, video.title, video.id),
-                     transcript.render(video, captions, segments))
+        write_atomic(self.transcripts / process.file_name(video.published, video.title, video.id),
+                     process.render(video, captions, segments))
 
     def date_transcripts(self, videos: list[Video]) -> None:
         """A listing can learn a video's date after its transcript was saved as 0000-00-00-…: fix those."""
@@ -113,10 +129,10 @@ class Collection:
         for vid, path in self.transcript_files().items():
             if not path.name.startswith("0000-00-00-") or vid not in dates:
                 continue
-            frontmatter, body = transcript.read(path)
+            frontmatter, body = process.read(path)
             frontmatter["published_at"] = dates[vid]
-            write_atomic(path.parent / transcript.file_name(dates[vid], frontmatter.get("title"), vid),
-                         transcript.join(frontmatter, body))
+            write_atomic(path.parent / process.file_name(dates[vid], frontmatter.get("title"), vid),
+                         process.join(frontmatter, body))
             path.unlink()
 
     def write_index(self) -> None:
@@ -124,7 +140,7 @@ class Collection:
         rows = []
         for path in sorted(self.transcript_files().values()):
             try:
-                fm, body = transcript.read(path)
+                fm, body = process.read(path)
             except (ValueError, yaml.YAMLError):
                 print(f"⚠ skipping {path.name}: unreadable frontmatter")
                 continue

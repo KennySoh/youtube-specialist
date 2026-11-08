@@ -48,17 +48,16 @@ Docker: `docker compose run --rm yt <command>`, with `knowledge-library/youtube/
 yt                    bash wrapper (14 lines)
 pipelines/video-pipeline/youtube_ingestion/
   __main__.py   175   argparse commands; fetch loop (fetch_transcripts); update = list + fetch + write index; file lock (fcntl)
-  youtube_client.py    137   all network: list_channel (yt-dlp subprocess), lookup_video (oEmbed), fetch_captions (youtube-transcript-api)
+  acquire.py    137   all network: list_channel (yt-dlp subprocess), lookup_video (oEmbed), fetch_captions (youtube-transcript-api)
   request_guard.py       73   budget/pace/block; state in knowledge-library/youtube/.guard.json; allow(paced) raises Stop
-  browser.py         Track B: parse bookmarklet captures (*.transcript.json); save_transcript.js is the bookmarklet
-  transcript.py      Video/Segment dataclasses and the transcript file format (name, frontmatter, [mm:ss] paragraphs)
-  knowledge_library.py         Collection (all disk I/O), INDEX.md, missing.log, status records (record_failure, gave_up)
+  process.py      Video/Segment dataclasses and the transcript file format (name, frontmatter, [mm:ss] paragraphs)
+  store.py         Collection (all disk I/O), INDEX.md, missing.log, status records (record_failure, gave_up)
 tests/test_youtube_ingestion.py  24 tests, no network (fetch_captions is monkeypatched)
 Dockerfile, compose.yaml
 templates/expert.md + SKILL.md    templates for a YouTube expert
 ```
 
-Dependency direction: `__main__` → `youtube_client` → `request_guard` → `knowledge_library` → `transcript`. Nothing imports `__main__`.
+Dependency direction: `__main__` → `acquire` → `request_guard` → `store` → `process`. Nothing imports `__main__`.
 
 On disk:
 
@@ -75,7 +74,7 @@ knowledge-library/youtube/<slug>/transcripts/*.md   <YYYY-MM-DD>-<title-slug>-<v
 ## Key signatures
 
 ```python
-# youtube_client.py
+# acquire.py
 class NoTranscript(Exception): status: str; error: str
 def list_channel(channel_url: str) -> list[Video]        # on a 429, records the block but still returns partial results
 def lookup_video(url: str) -> Video                      # raises UserError for user-facing errors
@@ -87,12 +86,12 @@ def allow(paced: bool = False) -> None                    # call before every re
 def block(reason, target, error, retry_after=None) -> Stop   # persists the block, returns the exception to raise
 def stop_reason() -> str | None
 
-# transcript.py
+# process.py
 @dataclass Video(id, title, url, channel, channel_url, upload_date, duration, view_count)  # .published -> "YYYY-MM-DD"
 @dataclass Segment(start, text, duration)
 def render(video, captions, segments) -> str;  file_name(published, title, id);  read(path);  join(frontmatter, body)
 
-# knowledge_library.py
+# store.py
 ROOT = $YT_LIBRARY or <repo>/knowledge-library/youtube
 def record_failure(statuses, video_id, status, error);  gave_up(status: dict | None) -> bool
 def find_channel(video) -> Collection | None
@@ -119,7 +118,7 @@ The skills depend on these:
 
 ## Decisions (2026-11-08 refactor)
 
-- Split the transcript format out of `library.py` into `transcript.py`: the format the skills
+- Split the transcript format out of `library.py` into `process.py`: the format the skills
   depend on lives in one file. Output is byte-identical to before.
 - Status records stay plain dicts; `record_failure()` is the one place that writes them.
 - `__main__.py` keeps the fetch loop: 175 lines with one job; no service layer.
@@ -131,7 +130,18 @@ The skills depend on these:
 
 ## Decisions (2026-11-08, "my-ai-brain" layout)
 
-- `ytspec` → `pipelines/video-pipeline/youtube_ingestion`; `youtube.py` → `youtube_client.py`,
-  `guard.py` → `request_guard.py`, `library.py` → `knowledge_library.py`. Behaviour unchanged.
+- `ytspec` → `pipelines/video-pipeline/youtube_ingestion`; `youtube.py` → `acquire.py`,
+  `guard.py` → `request_guard.py`, `library.py` → `store.py`. Behaviour unchanged.
 - The library moved from `library/` to `knowledge-library/youtube/` (guard state and lock with it).
 - Skills became thin: `experts/<name>/expert.md` holds the content, `.claude/skills/<name>/SKILL.md` points to it.
+
+## Decisions (2026-11-08, acquire → process → store)
+
+- Modules renamed by pipeline step: `youtube_client` → `acquire` (now also parses bookmarklet captures,
+  was `browser.py`), `transcript` → `process`, `knowledge_library` → `store`. `request_guard` unchanged.
+- `Video`/`Segment` live in `process.py`: in `acquire.py` they would make an import cycle
+  (acquire → request_guard → store → process → acquire).
+- New: every fetched video's captions are kept in `raw/youtube/<slug>/<id>.json` (bookmarklet files as
+  `<id>.browser.json`), so a transcript can be rebuilt without spending a request. Videos fetched before
+  this change have no raw file.
+- No `article-pipeline/` until there's an article source to ingest.

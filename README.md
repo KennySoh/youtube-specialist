@@ -11,7 +11,7 @@ Your knowledge. Your experts. Your personal AI.
 
 | Folder | Domain | Responsibility |
 |---|---|---|
-| `raw/` | Raw sources | Original files you import (book PDFs in `raw/books/`) |
+| `raw/` | Raw sources | Originals: book PDFs in `raw/books/`, captions as fetched in `raw/youtube/<slug>/<id>.json` |
 | `pipelines/` | Knowledge acquisition | Collect and process sources: `video-pipeline/`, `book-pipeline/` |
 | `knowledge-library/` | Knowledge library | Searchable Markdown: `youtube/`, `books/`, `notes/` (later) |
 | `experts/` | AI experts | `experts/<name>/expert.md`: who the expert is, which sources it may use, how it answers |
@@ -77,7 +77,7 @@ delete `knowledge-library/youtube/.guard.json` or retry by hand.
 3. On each: open the transcript panel (*Show transcript*, or *In this video › Timeline*), then click the bookmark.
    It saves `<id>.transcript.json` to your Downloads. It reads only what's on screen and sends nothing.
 4. `./yt import` (default `~/Downloads`) writes the transcripts (`transcript_source: browser`),
-   updates `INDEX.md` and `missing.log`, and moves the files to `knowledge-library/youtube/_imported/`.
+   updates `INDEX.md` and `missing.log`, and moves the files to `raw/youtube/<slug>/<id>.browser.json`.
 
 Only videos already in a collection are imported. With Docker, run `import` locally or mount the folder.
 
@@ -106,10 +106,14 @@ done
 cd pipelines/video-pipeline && ../../.venv/bin/python -m pytest tests   # never contacts YouTube
 ```
 
-- `pipelines/video-pipeline/youtube_ingestion/`: `youtube_client.py` (every request), `request_guard.py`
-  (rate limits), `knowledge_library.py` (disk), `transcript.py` (the file format experts read),
-  `browser.py` (bookmarklet imports), `__main__.py` (commands).
-- `pipelines/book-pipeline/book_ingestion/pdf_to_markdown.py`: PDF → chapters with page markers.
+Every pipeline has the same steps: **acquire** (get the source) → **process** (turn it into
+Markdown) → **store** (write `raw/` and `knowledge-library/`); `__main__.py` runs them in order.
+
+- `pipelines/video-pipeline/youtube_ingestion/`: `acquire.py` (every YouTube request, plus bookmarklet
+  captures), `request_guard.py` (rate limits), `process.py` (captions → transcript Markdown, shared types),
+  `store.py` (all disk I/O), `__main__.py` (commands).
+- `pipelines/book-pipeline/book_ingestion/`: `process.py` (PDF → pages and chapters, OCR), `store.py`
+  (`books.txt`, chapter files), `__main__.py`. No acquire step: you put the PDFs in `raw/books/`.
 
 If channel listing breaks, update yt-dlp with `.venv/bin/pip install -U yt-dlp yt-dlp-ejs` and copy
 the new versions into `pipelines/video-pipeline/requirements.txt`.

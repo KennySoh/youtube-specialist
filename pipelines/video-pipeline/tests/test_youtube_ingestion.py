@@ -6,15 +6,16 @@ import json
 import pytest
 
 from youtube_ingestion import __main__ as cli
-from youtube_ingestion import knowledge_library, request_guard, transcript, youtube_client
-from youtube_ingestion.knowledge_library import Collection
-from youtube_ingestion.transcript import Segment, Video
+from youtube_ingestion import acquire, process, request_guard, store
+from youtube_ingestion.store import Collection
+from youtube_ingestion.process import Segment, Video
 
 
 @pytest.fixture(autouse=True)
 def tmp_library(tmp_path, monkeypatch):
     """Every test gets an empty library and a fresh guard, with no waiting between requests."""
-    monkeypatch.setattr(knowledge_library, "ROOT", tmp_path / "library")
+    monkeypatch.setattr(store, "ROOT", tmp_path / "library")
+    monkeypatch.setattr(store, "RAW", tmp_path / "raw")
     monkeypatch.setattr(request_guard, "GAP_SECONDS", (0, 0))
     return tmp_path
 
@@ -25,9 +26,9 @@ VIDEO = Video(id="abcdefghijk", title="Hello: World!", url="https://www.youtube.
 
 def test_transcript_format():
     segments = [Segment(i * 7.5, f"line {i}", 7) for i in range(12)] + [Segment(4000, "late")]
-    text = transcript.render(VIDEO, "auto", segments)
+    text = process.render(VIDEO, "auto", segments)
     head, body = text.split("---\n")[1:]
-    assert list(transcript.yaml.safe_load(head)) == ["title", "video_id", "url", "channel", "published_at",
+    assert list(process.yaml.safe_load(head)) == ["title", "video_id", "url", "channel", "published_at",
                                                   "duration_seconds", "transcript_source", "fetched_at"]
     assert body.splitlines()[3:] == [
         "[00:00] line 0 line 1 line 2 line 3",
@@ -35,8 +36,8 @@ def test_transcript_format():
         "[01:00] line 8 line 9 line 10 line 11",
         "[01:06:40] late",
     ]
-    assert transcript.file_name(VIDEO.published, VIDEO.title, VIDEO.id) == "2026-01-02-hello-world-abcdefghijk.md"
-    assert transcript.file_name("", "", "-wNyEUrxzFU") == "0000-00-00-untitled--wNyEUrxzFU.md"
+    assert process.file_name(VIDEO.published, VIDEO.title, VIDEO.id) == "2026-01-02-hello-world-abcdefghijk.md"
+    assert process.file_name("", "", "-wNyEUrxzFU") == "0000-00-00-untitled--wNyEUrxzFU.md"
 
 
 @pytest.mark.parametrize("status, gave_up", [
@@ -47,7 +48,7 @@ def test_transcript_format():
     ({"status": "unavailable", "attempts": 1}, True),
 ])
 def test_gave_up(status, gave_up):
-    assert knowledge_library.gave_up(status) == gave_up
+    assert store.gave_up(status) == gave_up
 
 
 def test_budget():
@@ -70,7 +71,7 @@ def test_block_stops_every_request():
     ("ERROR: [youtube] abc: HTTP Error 404: Not Found", None),
 ])
 def test_block_reason(stderr, expected):
-    assert youtube_client.block_reason(stderr) == expected
+    assert acquire.block_reason(stderr) == expected
 
 
 def fake_captions(results: dict):
@@ -85,10 +86,12 @@ def fake_captions(results: dict):
 def test_fetch_records_status_and_missing_log(monkeypatch):
     c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
     c.save_videos([Video(id="aaaaaaaaaaa", title="has captions"), Video(id="bbbbbbbbbbb", title="none")])
-    monkeypatch.setattr(youtube_client, "fetch_captions", fake_captions({
-        "aaaaaaaaaaa": None, "bbbbbbbbbbb": youtube_client.NoTranscript("no_captions", "TranscriptsDisabled")}))
+    monkeypatch.setattr(acquire, "fetch_captions", fake_captions({
+        "aaaaaaaaaaa": None, "bbbbbbbbbbb": acquire.NoTranscript("no_captions", "TranscriptsDisabled")}))
     cli.update(c, only=True)  # only: skip listing (no network)
     assert list(c.transcript_files()) == ["aaaaaaaaaaa"]
+    raw = json.loads((store.RAW / "ch" / "aaaaaaaaaaa.json").read_text())
+    assert raw["captions"] == "manual" and raw["segments"] == [{"start": 0, "text": "words of aaaaaaaaaaa", "duration": 0.0}]
     assert c.statuses()["bbbbbbbbbbb"]["status"] == "no_captions"
     assert (c.dir / "missing.log").read_text() == "bbbbbbbbbbb\tno_captions\tnone\n"
     assert "[has captions](0000-00-00-has-captions-aaaaaaaaaaa.md)" in (c.transcripts / "INDEX.md").read_text()
@@ -97,7 +100,7 @@ def test_fetch_records_status_and_missing_log(monkeypatch):
 def test_grab_fetches_only_that_video(monkeypatch):
     c = Collection.create("topic")
     c.save_videos([Video(id="otherVideo1", title="pending")])
-    monkeypatch.setattr(youtube_client, "fetch_captions", fake_captions({"-wNyEUrxzFU": None}))
+    monkeypatch.setattr(acquire, "fetch_captions", fake_captions({"-wNyEUrxzFU": None}))
     cli.update(c, first=Video(id="-wNyEUrxzFU", title="dash"), only=True)
     assert list(c.transcript_files()) == ["-wNyEUrxzFU"]
 
@@ -106,7 +109,7 @@ def test_failures_in_a_row_stop_the_run(monkeypatch):
     c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
     ids = [f"vid{i:08d}" for i in range(5)]
     c.save_videos([Video(id=i) for i in ids])
-    monkeypatch.setattr(youtube_client, "fetch_captions", fake_captions({i: youtube_client.NoTranscript("failed", "x") for i in ids}))
+    monkeypatch.setattr(acquire, "fetch_captions", fake_captions({i: acquire.NoTranscript("failed", "x") for i in ids}))
     with pytest.raises(request_guard.Stop):
         cli.update(c, only=True)
     assert len(c.statuses()) == cli.MAX_FAILED_IN_A_ROW
@@ -119,7 +122,7 @@ def test_listing_learns_a_date():
     c.date_transcripts([VIDEO])
     [path] = c.transcript_files().values()
     assert path.name == "2026-01-02-hello-world-abcdefghijk.md"
-    assert transcript.read(path)[0]["published_at"] == "2026-01-02"
+    assert process.read(path)[0]["published_at"] == "2026-01-02"
 
 
 def test_videos_json_keeps_its_keys():
@@ -131,18 +134,18 @@ def test_videos_json_keeps_its_keys():
 
 
 def test_bad_video_link_is_a_user_error():
-    with pytest.raises(youtube_client.UserError, match="Not a YouTube video link"):
-        youtube_client.lookup_video("https://example.com/watch")
+    with pytest.raises(acquire.UserError, match="Not a YouTube video link"):
+        acquire.lookup_video("https://example.com/watch")
     assert request_guard.used_today(request_guard.state()) == 0  # rejected before any request was counted
 
 
 def test_record_failure_counts_attempts():
     statuses: dict = {}
-    knowledge_library.record_failure(statuses, "abcdefghijk", "failed", "x")
-    knowledge_library.record_failure(statuses, "abcdefghijk", "failed", "y")
+    store.record_failure(statuses, "abcdefghijk", "failed", "x")
+    store.record_failure(statuses, "abcdefghijk", "failed", "y")
     assert statuses["abcdefghijk"] == {"status": "failed", "attempts": 2, "error": "y"}
-    knowledge_library.record_failure(statuses, "abcdefghijk", "failed", "z")
-    assert knowledge_library.gave_up(statuses["abcdefghijk"])
+    store.record_failure(statuses, "abcdefghijk", "failed", "z")
+    assert store.gave_up(statuses["abcdefghijk"])
 
 
 def test_round_robin_interleaves_channels():
@@ -155,7 +158,7 @@ def test_update_many_takes_turns(monkeypatch):
     small.save_videos([Video(id="small000000")])
     order = []
     monkeypatch.setattr(cli, "list_if_due", lambda c: None)
-    monkeypatch.setattr(youtube_client, "fetch_captions", lambda vid: order.append(vid) or ("auto", [Segment(0, "x")]))
+    monkeypatch.setattr(acquire, "fetch_captions", lambda vid: order.append(vid) or ("auto", [Segment(0, "x")]))
     cli.update_many([big, small])
     assert order[:2] == ["big00000000", "small000000"]
 
@@ -176,15 +179,14 @@ late one
 
 
 def test_panel_text_parsing():
-    from youtube_ingestion import browser
-    segs = browser.parse_panel_text(TIMELINE_PANEL)
+    segs = acquire.parse_panel_text(TIMELINE_PANEL)
     assert [(s.start, s.text) for s in segs] == [(0, "hello there"), (65, "second line"), (3723, "late one")]
 
 
 def test_import_writes_transcript_and_moves_file(tmp_path):
     c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
     c.save_videos([VIDEO])
-    knowledge_library.record_failure(st := {}, VIDEO.id, "failed", "x")
+    store.record_failure(st := {}, VIDEO.id, "failed", "x")
     c.save_statuses(st)
     downloads = tmp_path / "dl"
     downloads.mkdir()
@@ -194,11 +196,11 @@ def test_import_writes_transcript_and_moves_file(tmp_path):
     (downloads / "yyyyyyyyyyy.transcript.json").write_text(json.dumps({"video_id": "yyyyyyyyyyy", "segments": []}))
     cli.import_command(type("Args", (), {"dir": str(downloads)})())
     [path] = c.transcript_files().values()
-    fm, body = transcript.read(path)
+    fm, body = process.read(path)
     assert fm["transcript_source"] == "browser" and fm["published_at"] == "2026-01-02"
     assert "[00:00] a\n[00:31] b" in body
     assert c.statuses() == {}
-    assert (knowledge_library.ROOT / "_imported" / f"{VIDEO.id}.transcript.json").exists()
+    assert (store.RAW / "ch" / f"{VIDEO.id}.browser.json").exists()
     assert sorted(p.name for p in downloads.iterdir()) == ["yyyyyyyyyyy.transcript.json", "zzzzzzzzzzz.transcript.json"]
     assert path.name in (c.transcripts / "INDEX.md").read_text()
 
@@ -209,8 +211,8 @@ def test_todo_lists_given_up_videos_first(capsys):
                    Video(id="none0000000", title="no captions")])
     st: dict = {}
     for _ in range(3):
-        knowledge_library.record_failure(st, "hard0000000", "failed", "x")
-    knowledge_library.record_failure(st, "none0000000", "no_captions", "x")
+        store.record_failure(st, "hard0000000", "failed", "x")
+    store.record_failure(st, "none0000000", "no_captions", "x")
     c.save_statuses(st)
     cli.todo_command(type("Args", (), {"slug": None, "n": 20, "open": 0})())
     lines = [ln for ln in capsys.readouterr().out.splitlines() if "ch/" in ln]

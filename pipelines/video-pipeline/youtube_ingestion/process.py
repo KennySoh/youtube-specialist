@@ -1,4 +1,5 @@
-"""The transcript file format the skills depend on: file name, frontmatter and [mm:ss] paragraphs.
+"""PROCESS: captions → the transcript Markdown the experts read (file name, frontmatter, [mm:ss] paragraphs).
+Also the data types every step shares (Video, Segment). No disk, no network.
 
 <YYYY-MM-DD>-<title-slug>-<video_id>.md   (0000-00-00 until the upload date is known)
 """

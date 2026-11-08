@@ -1,4 +1,4 @@
-"""The guard: rules that keep us under YouTube's rate limit. youtube_client.py asks before every request.
+"""The guard: rules that keep us under YouTube's rate limit. acquire.py asks before every request.
 
 - budget: at most YT_DAILY_LIMIT requests a day (a video, a channel listing and a video lookup each count as one)
 - pace:   a random YT_GAP_MIN–YT_GAP_MAX seconds between caption requests, across runs too
@@ -13,8 +13,8 @@ import os
 import random
 import time
 
-from . import knowledge_library
-from .knowledge_library import load_json, save_json
+from . import store
+from .store import load_json, save_json
 
 DAILY_LIMIT = int(os.environ.get("YT_DAILY_LIMIT", 50))
 GAP_SECONDS = (float(os.environ.get("YT_GAP_MIN", 60)), float(os.environ.get("YT_GAP_MAX", 120)))
@@ -30,7 +30,7 @@ def now() -> dt.datetime:
 
 
 def state_file():
-    return knowledge_library.ROOT / ".guard.json"
+    return store.ROOT / ".guard.json"
 
 
 def state() -> dict:

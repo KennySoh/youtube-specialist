@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Convert books listed in knowledge/books.txt into knowledge/<slug>/chapters/*.md.
+
+Run via Docker:  ./books [slug ...] [--force]
+
+books.txt paths are relative to BOOKS_DIR (the PDF folder, outside the repo; mounted at /books).
+
+Each chapter file has a `<!-- p.N -->` marker before every page (N = PDF page).
+Chapters come from the PDF outline, else from `#` headings, else 25-page parts.
+Scanned PDFs are OCR'd first (cached as knowledge/<slug>/ocr.pdf).
+"""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pymupdf
+import pymupdf4llm
+
+pymupdf.TOOLS.mupdf_display_errors(False)  # malformed PDFs spam harmless warnings
+# ignore_graphics below: otherwise text in shaded boxes (tips, sidebars) is dropped
+
+ROOT = Path(__file__).resolve().parent.parent
+KNOWLEDGE = ROOT / "knowledge"
+BOOKS = Path(os.environ.get("BOOKS_DIR", "/books"))
+MAX_PAGES = 60   # outline sections longer than this are split into sub-sections
+CHUNK = 25       # pages per part when there is no outline or headings
+MIN_CHARS = 100  # average chars/page below this means the PDF is a scan
+
+
+def read_books() -> dict[str, Path]:
+    books = {}
+    for line in (KNOWLEDGE / "books.txt").read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            slug, path = line.split(maxsplit=1)
+            books[slug] = BOOKS / path
+    return books
+
+
+def chars_per_page(doc) -> float:
+    pages = range(0, doc.page_count, max(1, doc.page_count // 20))
+    return sum(len(doc[i].get_text()) for i in pages) / len(pages)
+
+
+def ocr(pdf: Path, out: Path) -> Path:
+    if not out.exists():
+        print("  scanned PDF, running OCR (takes a while)...")
+        tmp = out.with_suffix(".tmp.pdf")
+        subprocess.run(["ocrmypdf", "-q", "--skip-text", str(pdf), str(tmp)], check=True)
+        tmp.rename(out)
+    return out
+
+
+def outline_sections(doc) -> list[tuple[str, int, int]]:
+    """(title, start, end) page ranges from the PDF outline; end is exclusive."""
+    toc = [(lvl, title.strip(), page - 1) for lvl, title, page in doc.get_toc() if page >= 1]
+    tops = [i for i, entry in enumerate(toc) if entry[0] == 1]
+    out = []
+    for n, i in enumerate(tops):
+        j = tops[n + 1] if n + 1 < len(tops) else len(toc)
+        title, start = toc[i][1], toc[i][2]
+        end = toc[j][2] if j < len(toc) else doc.page_count
+        kids = [e for e in toc[i + 1:j] if e[0] == 2]
+        if end - start > MAX_PAGES and kids:  # long part: split into its chapters
+            out.append((title, start, kids[0][2]))
+            for k, (_, kid_title, kid_start) in enumerate(kids):
+                out.append((kid_title, kid_start, kids[k + 1][2] if k + 1 < len(kids) else end))
+        else:
+            out.append((title, start, end))
+    if out and out[0][1] > 0:
+        out.insert(0, ("Front matter", 0, out[0][1]))
+    return [s for s in out if s[2] > s[1]]
+
+
+def heading_sections(pages: list[str]) -> list[tuple[str, int, int]]:
+    """Split on bold `#` headings; also use `##` if `#` alone leaves sections too long."""
+    best = []
+    for depth in (1, 2):
+        sections = _split_on_headings(pages, depth) or best
+        if sections and max(e - s for _, s, e in sections) <= MAX_PAGES:
+            return sections
+        best = sections
+    return best
+
+
+def _split_on_headings(pages: list[str], depth: int) -> list[tuple[str, int, int]]:
+    # real headings are bold; code comments like "# config" are not
+    pattern = re.compile(r"#{1,%d} \*\*" % depth)
+    starts = []
+    for i, text in enumerate(pages):
+        heading = next((l for l in text.splitlines() if pattern.match(l)), None)
+        if heading:
+            starts.append((" ".join(re.sub(r"[#*_]", " ", heading).split()), i))
+    if len(starts) < 3:
+        return []
+    if starts[0][1] > 0:
+        starts.insert(0, ("Front matter", 0))
+    ends = [s for _, s in starts[1:]] + [len(pages)]
+    return [(t, s, e) for (t, s), e in zip(starts, ends)]
+
+
+def chunk_sections(n_pages: int) -> list[tuple[str, int, int]]:
+    return [(f"Part {i // CHUNK + 1}", i, min(i + CHUNK, n_pages)) for i in range(0, n_pages, CHUNK)]
+
+
+def slugify(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:50] or "section"
+
+
+def convert(slug: str, pdf: Path, force: bool) -> None:
+    book_dir = KNOWLEDGE / slug
+    chapters = book_dir / "chapters"
+    if chapters.exists() and not force:
+        print(f"- {slug}  (exists, skipping; use --force)")
+        return
+    start = time.time()
+    book_dir.mkdir(parents=True, exist_ok=True)
+
+    doc = pymupdf.open(pdf)
+    scanned = chars_per_page(doc) < MIN_CHARS
+    if scanned:
+        doc = pymupdf.open(ocr(pdf, book_dir / "ocr.pdf"))
+        if chars_per_page(doc) < MIN_CHARS:
+            print(f"  ! {slug}: still little text after OCR, check the output", file=sys.stderr)
+
+    pages = [c["text"] for c in pymupdf4llm.to_markdown(doc, page_chunks=True, show_progress=False, ignore_graphics=True)]
+    if scanned:  # OCR text comes out as code blocks with blank lines between lines
+        pages = [re.sub(r"\n\n(?=\S)", "\n", re.sub(r"^```\n?", "", t, flags=re.M)) for t in pages]
+    sections = outline_sections(doc) or heading_sections(pages) or chunk_sections(len(pages))
+
+    shutil.rmtree(chapters, ignore_errors=True)
+    chapters.mkdir()
+    for n, (title, s, e) in enumerate(sections):
+        body = "\n\n".join(f"<!-- p.{i + 1} -->\n{pages[i]}" for i in range(s, e))
+        header = f"<!-- {title} | {pdf.name} | PDF pages {s + 1}-{e} -->\n\n"
+        (chapters / f"{n:02d}-{slugify(title)}.md").write_text(header + body, encoding="utf-8")
+    print(f"✓ {slug}  {len(sections)} chapters, {len(pages)} pages  ({time.time() - start:.0f}s)")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("slugs", nargs="*", help="books to convert (default: all in books.txt)")
+    ap.add_argument("--force", action="store_true", help="re-convert existing books")
+    args = ap.parse_args()
+
+    books = read_books()
+    unknown = [s for s in args.slugs if s not in books]
+    if unknown:
+        print(f"✗ not in knowledge/books.txt: {', '.join(unknown)}", file=sys.stderr)
+        return 1
+
+    failed = 0
+    for slug in args.slugs or books:
+        if not books[slug].exists():
+            print(f"✗ {slug}  no PDF at {books[slug]} (is BOOKS_DIR set?)", file=sys.stderr)
+            failed += 1
+            continue
+        try:
+            convert(slug, books[slug], args.force)
+        except Exception as e:  # keep going on broken PDFs
+            print(f"✗ {slug}  failed: {e}", file=sys.stderr)
+            failed += 1
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

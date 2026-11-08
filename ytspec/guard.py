@@ -4,7 +4,7 @@
 - pace:   a random YT_GAP_MIN–YT_GAP_MAX seconds between caption requests, across runs too
 - block:  the first 429 or bot check stops every request for 24 h (longer if YouTube sends Retry-After)
 
-State lives in library/.guard.json.
+State lives in library/.guard.json, shared by every run (cron, terminals).
 """
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ import os
 import random
 import time
 
-from .library import ROOT, load_json, save_json
+from . import library
+from .library import load_json, save_json
 
-STATE = ROOT / ".guard.json"
 DAILY_LIMIT = int(os.environ.get("YT_DAILY_LIMIT", 50))
 GAP_SECONDS = (float(os.environ.get("YT_GAP_MIN", 60)), float(os.environ.get("YT_GAP_MAX", 120)))
 BLOCK_SECONDS = 24 * 3600
@@ -29,8 +29,12 @@ def now() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+def state_file():
+    return library.ROOT / ".guard.json"
+
+
 def state() -> dict:
-    return load_json(STATE, {})
+    return load_json(state_file(), {})
 
 
 def used_today(s: dict) -> int:
@@ -62,12 +66,12 @@ def allow(paced: bool = False) -> None:
     s.update(day=dt.date.today().isoformat(), used=used_today(s) + 1)
     if paced:
         s["last_paced"] = now().isoformat(timespec="seconds")
-    save_json(STATE, s)
+    save_json(state_file(), s)
 
 
 def block(reason: str, target: str, error: str, retry_after: float | None = None) -> Stop:
     """Record that YouTube said slow down. Returns the Stop to raise."""
     until = now() + dt.timedelta(seconds=max(BLOCK_SECONDS, retry_after or 0))
-    save_json(STATE, {**state(), "blocked_until": until.isoformat(timespec="seconds"), "reason": reason,
+    save_json(state_file(), {**state(), "blocked_until": until.isoformat(timespec="seconds"), "reason": reason,
                       "target": target, "error": error, "at": now().isoformat(timespec="seconds")})
     return Stop(f"⛔ YouTube says slow down ({reason}); no requests until {until.astimezone():%Y-%m-%d %H:%M}")

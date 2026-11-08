@@ -18,6 +18,9 @@ __pycache__/
 # Your own channels, skills and notes stay local — the repo ships only the tool.
 library/
 .claude/skills/
+role-skills/
+knowledge/
+docs/plans/
 advise*.md
 plan.md
 youtube_specialist_transcript_reliability.md

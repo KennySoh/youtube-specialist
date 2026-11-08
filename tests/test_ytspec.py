@@ -1,4 +1,4 @@
-"""Tests for what must not change (see refactor.md). Nothing here contacts YouTube."""
+"""Tests for what must not change (see docs/youtube.md). Nothing here contacts YouTube."""
 from __future__ import annotations
 
 import json
@@ -6,14 +6,15 @@ import json
 import pytest
 
 from ytspec import __main__ as cli
-from ytspec import guard, library, youtube
-from ytspec.library import Collection, Segment, Video
+from ytspec import guard, library, transcript, youtube
+from ytspec.library import Collection
+from ytspec.transcript import Segment, Video
 
 
 @pytest.fixture(autouse=True)
 def tmp_library(tmp_path, monkeypatch):
     """Every test gets an empty library and a fresh guard, with no waiting between requests."""
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(library, "ROOT", tmp_path / "library")
     monkeypatch.setattr(guard, "GAP_SECONDS", (0, 0))
     return tmp_path
 
@@ -24,9 +25,9 @@ VIDEO = Video(id="abcdefghijk", title="Hello: World!", url="https://www.youtube.
 
 def test_transcript_format():
     segments = [Segment(i * 7.5, f"line {i}", 7) for i in range(12)] + [Segment(4000, "late")]
-    text = library.render_transcript(VIDEO, "auto", segments)
+    text = transcript.render(VIDEO, "auto", segments)
     head, body = text.split("---\n")[1:]
-    assert list(library.yaml.safe_load(head)) == ["title", "video_id", "url", "channel", "published_at",
+    assert list(transcript.yaml.safe_load(head)) == ["title", "video_id", "url", "channel", "published_at",
                                                   "duration_seconds", "transcript_source", "fetched_at"]
     assert body.splitlines()[3:] == [
         "[00:00] line 0 line 1 line 2 line 3",
@@ -34,8 +35,8 @@ def test_transcript_format():
         "[01:00] line 8 line 9 line 10 line 11",
         "[01:06:40] late",
     ]
-    assert library.transcript_name(VIDEO.published, VIDEO.title, VIDEO.id) == "2026-01-02-hello-world-abcdefghijk.md"
-    assert library.transcript_name("", "", "-wNyEUrxzFU") == "0000-00-00-untitled--wNyEUrxzFU.md"
+    assert transcript.file_name(VIDEO.published, VIDEO.title, VIDEO.id) == "2026-01-02-hello-world-abcdefghijk.md"
+    assert transcript.file_name("", "", "-wNyEUrxzFU") == "0000-00-00-untitled--wNyEUrxzFU.md"
 
 
 @pytest.mark.parametrize("status, gave_up", [
@@ -118,7 +119,7 @@ def test_listing_learns_a_date():
     c.date_transcripts([VIDEO])
     [path] = c.transcript_files().values()
     assert path.name == "2026-01-02-hello-world-abcdefghijk.md"
-    assert library.read_transcript(path)[0]["published_at"] == "2026-01-02"
+    assert transcript.read(path)[0]["published_at"] == "2026-01-02"
 
 
 def test_videos_json_keeps_its_keys():
@@ -127,3 +128,18 @@ def test_videos_json_keeps_its_keys():
     assert set(json.loads((c.dir / "videos.json").read_text())[0]) == {
         "id", "title", "url", "channel", "channel_url", "upload_date", "duration", "view_count"}
     assert c.channel_url == "https://www.youtube.com/@ch/videos"
+
+
+def test_bad_video_link_is_a_user_error():
+    with pytest.raises(youtube.UserError, match="Not a YouTube video link"):
+        youtube.lookup_video("https://example.com/watch")
+    assert guard.used_today(guard.state()) == 0  # rejected before any request was counted
+
+
+def test_record_failure_counts_attempts():
+    statuses: dict = {}
+    library.record_failure(statuses, "abcdefghijk", "failed", "x")
+    library.record_failure(statuses, "abcdefghijk", "failed", "y")
+    assert statuses["abcdefghijk"] == {"status": "failed", "attempts": 2, "error": "y"}
+    library.record_failure(statuses, "abcdefghijk", "failed", "z")
+    assert library.gave_up(statuses["abcdefghijk"])

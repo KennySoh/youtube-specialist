@@ -14,10 +14,14 @@ import subprocess
 import requests
 
 from . import guard
-from .library import Segment, Video
+from .transcript import Segment, Video
 
 VIDEO_URL = re.compile(r"(?:[?&]v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})")
 LANGUAGES = ["en", "en-US", "en-GB"]
+
+
+class UserError(Exception):
+    """A problem the user can fix (bad link, unknown video). The CLI prints it and exits."""
 
 
 class NoTranscript(Exception):
@@ -75,30 +79,31 @@ def list_channel(channel_url: str) -> list[Video]:
             ))
     if reason := block_reason(proc.stderr):
         print(f"yt-dlp: {last_error(proc.stderr)}")
+        # Don't raise: the caller saves this partial listing first; the next guard.allow() raises the Stop.
         guard.block(reason, channel_url, last_error(proc.stderr))
     elif not videos:
-        raise SystemExit(f"yt-dlp found no videos: {last_error(proc.stderr)}")
+        raise UserError(f"yt-dlp found no videos: {last_error(proc.stderr)}")
     return videos
 
 
 def lookup_video(url: str) -> Video:
     """Title and channel of a watch?v=, youtu.be/, shorts/ or live/ link."""
     if not (m := VIDEO_URL.search(url)):
-        raise SystemExit(f"Not a YouTube video link: {url}")
+        raise UserError(f"Not a YouTube video link: {url}")
     video_id = m.group(1)
     watch_url = f"https://www.youtube.com/watch?v={video_id}"
     guard.allow()
     try:
         r = requests.get("https://www.youtube.com/oembed", params={"url": watch_url, "format": "json"}, timeout=20)
     except requests.RequestException as err:
-        raise SystemExit(f"Couldn't reach YouTube: {err}")
+        raise UserError(f"Couldn't reach YouTube: {err}")
     if r.status_code == 429:
         raise guard.block("429", video_id, "oEmbed HTTP 429", retry_after(r))
     if r.status_code == 401:
-        raise SystemExit(f"{video_id}: the owner disabled embedding, so its channel can't be looked up. "
+        raise UserError(f"{video_id}: the owner disabled embedding, so its channel can't be looked up. "
                          'Use the channel URL instead: ./yt add <channel_url> "<Name>"')
     if r.status_code != 200:
-        raise SystemExit(f"{video_id}: video not found, private or removed (HTTP {r.status_code})")
+        raise UserError(f"{video_id}: video not found, private or removed (HTTP {r.status_code})")
     info = r.json()
     return Video(id=video_id, title=info.get("title", ""), url=watch_url,
                  channel=info["author_name"], channel_url=info["author_url"].removesuffix("/"))

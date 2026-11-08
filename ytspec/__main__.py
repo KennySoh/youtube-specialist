@@ -8,11 +8,13 @@ import sys
 from slugify import slugify
 
 from . import guard, youtube
-from .library import ROOT, Collection, Video, find_channel, gave_up
+from . import library
+from .library import Collection, find_channel, gave_up, record_failure
+from .transcript import Video
 
 LIST_EVERY_HOURS = 24      # a channel is listed at most once a day
 MAX_FAILED_IN_A_ROW = 3    # unexplained failures in a row end the run
-SKILL_HINT = 'Next: ask Claude to "create the {} skill" from templates/SKILL.md'
+SKILL_HINT = 'Next: ask Claude to "create the {} skill" from templates/channel-skill.md'
 
 
 def fetch_transcripts(c: Collection, first: Video | None = None, only: bool = False) -> None:
@@ -39,8 +41,7 @@ def fetch_transcripts(c: Collection, first: Video | None = None, only: bool = Fa
         try:
             captions, segments = youtube.fetch_captions(video.id)
         except youtube.NoTranscript as e:
-            statuses[video.id] = {"status": e.status, "attempts": statuses.get(video.id, {}).get("attempts", 0) + 1,
-                                  "error": e.error}
+            record_failure(statuses, video.id, e.status, e.error)
             c.save_statuses(statuses)
             print(f"{e.status:12s} {video.id}  {e.error}", flush=True)
             failed_in_a_row = failed_in_a_row + 1 if e.status == "failed" else 0
@@ -62,7 +63,7 @@ def update(c: Collection, first: Video | None = None, only: bool = False) -> Non
             if c.listed_within(LIST_EVERY_HOURS):
                 print(f"video list is under {LIST_EVERY_HOURS}h old; not listing again")
             else:
-                listed = youtube.list_channel(c.channel_url)
+                listed = youtube.list_channel(c.channel_url)  # on a 429: partial list, saved below, then Stop
                 for v in listed:
                     v.channel = v.channel or c.channel_name
                 old = c.videos()
@@ -135,8 +136,8 @@ def list_command(_args) -> None:
 
 def lock():
     """Only one run may talk to YouTube at a time, across terminals and cron."""
-    ROOT.mkdir(exist_ok=True)
-    f = open(ROOT / ".lock", "w")
+    library.ROOT.mkdir(exist_ok=True)
+    f = open(library.ROOT / ".lock", "w")
     try:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -165,6 +166,8 @@ def main() -> None:
     held = lock() if args.command != "list" else None  # noqa: F841  the lock lasts as long as the process
     try:
         args.run(args)
+    except youtube.UserError as err:
+        sys.exit(str(err))
     except guard.Stop as stop:
         print(f"⏸ {stop}. Progress is saved; run ./yt update again later.")
     except KeyboardInterrupt:

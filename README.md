@@ -51,9 +51,12 @@ Or with Docker: `docker compose build`, then `docker compose run --rm yt <comman
 ./yt list                                                        # progress and today's budget (no network)
 ./yt todo [slug] [--open N]                                      # what's still missing, hardest first (no network)
 ./yt import [dir]                                                # bookmarklet captures → transcripts (no network)
+./yt reprocess [slug]                                            # rebuild transcripts from raw/ (no network)
 ```
 
 `./yt update` with no slug takes the channels in turn, so one big channel can't use up the day's budget.
+Every fetch keeps the captions in `raw/youtube/<slug>/<id>.json`; a video with a raw snapshot is
+built from it instead of asking YouTube again, and `./yt reprocess` rebuilds transcripts from `raw/` alone.
 Then, in Claude Code: *"create the some-channel expert from experts/_template/"*, and ask `/some-channel …`.
 
 ## Daily runs
@@ -104,6 +107,7 @@ done
 
 ```bash
 cd pipelines/video-pipeline && ../../.venv/bin/python -m pytest tests   # never contacts YouTube
+cd pipelines/book-pipeline && ../../.venv/bin/python -m pytest tests    # book store; no Docker needed
 ```
 
 Every pipeline has the same steps: **acquire** (get the source) → **process** (turn it into

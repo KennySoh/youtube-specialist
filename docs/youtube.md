@@ -24,6 +24,7 @@ answer questions as a given YouTuber and cite `[mm:ss]` timestamps.
 ./yt todo [slug] [-n N] [--open N]      missing videos, gave-up ones first, no network
 ./yt import [dir]                       bookmarklet captures → transcripts (source: browser), no network
 ./yt bookmarklet                        print the Save transcript bookmarklet
+./yt reprocess [slug]                   rebuild transcripts from raw/ only, no network
 ```
 
 `./yt` is a 14-line bash wrapper. It runs `setup`, loads `.env`, then runs `python -m youtube_ingestion`.
@@ -52,7 +53,7 @@ pipelines/video-pipeline/youtube_ingestion/
   request_guard.py       73   budget/pace/block; state in knowledge-library/youtube/.guard.json; allow(paced) raises Stop
   process.py      Video/Segment dataclasses and the transcript file format (name, frontmatter, [mm:ss] paragraphs)
   store.py         Collection (all disk I/O), INDEX.md, missing.log, status records (record_failure, gave_up)
-tests/test_youtube_ingestion.py  24 tests, no network (fetch_captions is monkeypatched)
+tests/test_youtube_ingestion.py  39 tests, no network (fetch_captions is monkeypatched)
 Dockerfile, compose.yaml
 experts/_template/expert.md + SKILL.md    templates for a YouTube expert
 ```
@@ -145,3 +146,11 @@ The skills depend on these:
   `<id>.browser.json`), so a transcript can be rebuilt without spending a request. Videos fetched before
   this change have no raw file.
 - No `article-pipeline/` until there's an article source to ingest.
+
+## Decisions (2026-11-08, raw reuse)
+
+- The fetch loop uses `raw/youtube/<slug>/<id>.json` when it exists and is valid (no request); a broken
+  snapshot falls back to a normal fetch and is replaced. `fetched_at` keeps the original fetch date.
+- `./yt reprocess [slug]` rebuilds transcripts from raw snapshots and bookmarklet captures only.
+- A transcript rebuilt under a new file name (title or date changed) replaces the old file.
+- Templates moved to `experts/_template/` (committed; the rest of `experts/` stays local).

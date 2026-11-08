@@ -1,6 +1,8 @@
 """The guard: rules that keep us under YouTube's rate limit. acquire.py asks before every request.
 
 - budget: at most YT_DAILY_LIMIT requests a day (a video, a channel listing and a video lookup each count as one)
+          It counts admitted operations, not HTTP requests: one yt-dlp channel listing makes many
+          page requests underneath (yt-dlp paces those itself with --sleep-requests).
 - pace:   a random YT_GAP_MIN–YT_GAP_MAX seconds between caption requests, across runs too
 - block:  the first 429 or bot check stops every request for 24 h (longer if YouTube sends Retry-After)
 

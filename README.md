@@ -1,4 +1,4 @@
-# MyAiExperts
+# MyAiMentors
 
 **Your knowledge. Your experts. Your personal AI.**
 
@@ -76,7 +76,7 @@ Create a new expert from `experts/_template/`.
 Run YouTube updates daily:
 
 ```cron
-0 3 * * * cd /path/to/MyAiExperts && ./scripts/yt.sh update >> fetch.log 2>&1
+0 3 * * * cd /path/to/MyAiMentors && ./scripts/yt.sh update >> fetch.log 2>&1
 ```
 
 Run the offline tests:

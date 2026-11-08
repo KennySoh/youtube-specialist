@@ -7,7 +7,7 @@ Diagram: [video pipeline](diagrams/video-pipeline.mmd).
 | Module | Job |
 |---|---|
 | `__main__.py` | The commands, the run lock, round-robin queue, `finish()` (dates, `INDEX.md`, `missing.log`) |
-| `acquire.py` | Channel listing (yt-dlp), video lookup (oEmbed), captions (youtube-transcript-api), reading bookmarklet files |
+| `acquire.py` | Channel listing (yt-dlp), video lookup (oEmbed; yt-dlp for videos with embedding disabled), captions (youtube-transcript-api), reading bookmarklet files |
 | `request_guard.py` | Budget, pacing and blocks; asked before every request |
 | `process.py` | `Video` and `Segment`; captions → transcript Markdown. No disk, no network |
 | `store.py` | `Collection`: everything on disk, raw snapshots included. No network |
@@ -34,7 +34,7 @@ expert from experts/_template/"*.
 
 `add <video_url>` looks the video up (oEmbed). If you already have its channel (matched by URL or name), it
 updates that collection with this video first; otherwise it creates the channel collection. `grab` refuses a
-slug that is a channel collection.
+slug that is a channel collection. `grab` skips a video already in the topic without making a request, so re-running a queue is free.
 
 ## How captions are fetched
 
@@ -113,6 +113,6 @@ Only videos already in a collection are imported.
 
 ## Tests
 
-`./scripts/test.sh`: 40 tests, no network. They cover the formats above, that only transcripts and
+`./scripts/test.sh`: 43 tests, no network. They cover the formats above, that only transcripts and
 `missing.log` reach the library, the guard (budget, block,
 restart, day boundary, Retry-After), the lock, raw reuse and the bookmarklet import.

@@ -140,6 +140,9 @@ def grab(args) -> None:
     slug = slugify(args.topic)
     if Collection(slug).channel_url:
         raise SystemExit(f"{slug} is a channel collection; use ./scripts/yt.sh add for channels.")
+    if (m := acquire.VIDEO_URL.search(args.url)) and m.group(1) in Collection(slug).transcript_files():
+        print(f"{m.group(1)}: already in {slug}")  # no request: re-running a queue costs nothing
+        return
     video = acquire.lookup_video(args.url)
     c = Collection.create(slug)
     print(f'→ "{video.title}" ({video.channel}) into {c.slug}')

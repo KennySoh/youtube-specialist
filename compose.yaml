@@ -2,7 +2,7 @@
 services:
   yt:
     build: knowledge-acquisition/pipelines/video-pipeline
-    image: myaiexperts-yt
+    image: myaimentors-yt
     user: "1000:1000"
     volumes:
       - ./knowledge-library/youtube:/library                  # published transcripts (what experts read)

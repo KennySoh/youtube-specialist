@@ -369,3 +369,39 @@ def test_index_format():
         # Words counts the [00:00] token too (3 words + 1): existing behaviour, kept as is
         "| 2026-01-02 | [Hello: World!](2026-01-02-hello-world-abcdefghijk.md) | auto | 4 | "
         "[yt](https://www.youtube.com/watch?v=abcdefghijk) |"]
+
+
+class FakeResponse:
+    def __init__(self, status_code: int):
+        self.status_code, self.headers = status_code, {}
+
+
+def fake_yt_dlp(stdout: str = "", stderr: str = ""):
+    return lambda *_a, **_k: __import__("subprocess").CompletedProcess([], 0, stdout, stderr)
+
+
+def test_embedding_disabled_falls_back_to_the_watch_page(monkeypatch):
+    """oEmbed answers 401 when the owner disabled embedding; yt-dlp still gets the title, channel and date."""
+    monkeypatch.setattr(acquire.requests, "get", lambda *_a, **_k: FakeResponse(401))
+    monkeypatch.setattr(acquire.subprocess, "run", fake_yt_dlp(json.dumps({
+        "title": "No Embeds", "channel": "Ch", "channel_url": "https://www.youtube.com/@ch/",
+        "upload_date": "20260102", "duration": 60})))
+    video = acquire.lookup_video("https://www.youtube.com/watch?v=abcdefghijk")
+    assert (video.id, video.title, video.channel, video.channel_url, video.upload_date) == (
+        "abcdefghijk", "No Embeds", "Ch", "https://www.youtube.com/@ch", "20260102")
+    assert request_guard.used_today(request_guard.state()) == 2  # the oEmbed try and the watch page
+
+
+def test_watch_page_429_blocks(monkeypatch):
+    monkeypatch.setattr(acquire.requests, "get", lambda *_a, **_k: FakeResponse(401))
+    monkeypatch.setattr(acquire.subprocess, "run", fake_yt_dlp(stderr="ERROR: HTTP Error 429: Too Many Requests"))
+    with pytest.raises(request_guard.Stop, match="slow down"):
+        acquire.lookup_video("https://www.youtube.com/watch?v=abcdefghijk")
+    assert request_guard.stop_reason()
+
+
+def test_grab_skips_a_saved_video_without_a_request():
+    c = Collection.create("topic")
+    c.write_transcript(VIDEO, "auto", [Segment(0, "hi")])
+    cli.grab(type("Args", (), {"topic": "topic", "url": VIDEO.url})())
+    assert request_guard.used_today(request_guard.state()) == 0

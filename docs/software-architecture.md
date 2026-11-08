@@ -1,10 +1,10 @@
-# MyAiExperts — Software Architecture
+# MyAiMentors — Software Architecture
 
-MyAiExperts helps users build personalized AI experts from knowledge they trust.
+MyAiMentors helps users build personalized AI experts from knowledge they trust.
 
 ## Overview
 
-MyAiExperts has three domain areas:
+MyAiMentors has three domain areas:
 
 | Domain | Responsibility | Classification |
 |---|---|---|

@@ -3,7 +3,8 @@
 1. From YouTube: every request we make, and each one asks the request guard first.
 
 - list_channel:   a channel's videos (yt-dlp; it never fetches captions)
-- lookup_video:   a video URL → title and channel (oEmbed, a small JSON lookup)
+- lookup_video:   a video URL → title and channel (oEmbed, a small JSON lookup; yt-dlp when the owner
+                  disabled embedding, since oEmbed then answers 401)
 - fetch_captions: a video's English captions (youtube-transcript-api; never a machine translation)
 
 2. From your own browser (no requests): the bookmarklet (save_transcript.js) saves the open transcript
@@ -106,14 +107,32 @@ def lookup_video(url: str) -> Video:
         raise UserError(f"Couldn't reach YouTube: {err}")
     if r.status_code == 429:
         raise request_guard.block("429", video_id, "oEmbed HTTP 429", retry_after(r))
-    if r.status_code == 401:
-        raise UserError(f"{video_id}: the owner disabled embedding, so its channel can't be looked up. "
-                         'Use the channel URL instead: ./scripts/yt.sh add <channel_url> "<Name>"')
+    if r.status_code == 401:  # embedding disabled: oEmbed won't say, but the watch page still does
+        return video_metadata(video_id)
     if r.status_code != 200:
         raise UserError(f"{video_id}: video not found, private or removed (HTTP {r.status_code})")
     info = r.json()
     return Video(id=video_id, title=info.get("title", ""), url=watch_url,
                  channel=info["author_name"], channel_url=info["author_url"].removesuffix("/"))
+
+
+def video_metadata(video_id: str) -> Video:
+    """One video's title, channel and date from its watch page (yt-dlp). Slower than oEmbed, one more request."""
+    watch_url = f"https://www.youtube.com/watch?v={video_id}"
+    request_guard.allow()
+    proc = subprocess.run(["yt-dlp", "--skip-download", "--dump-json", "--no-warnings", watch_url],
+                          capture_output=True, text=True, check=False)
+    if reason := block_reason(proc.stderr):
+        raise request_guard.block(reason, video_id, last_error(proc.stderr))
+    try:
+        info = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise UserError(f"{video_id}: video not found, private or removed ({last_error(proc.stderr)})")
+    return Video(id=video_id, title=info.get("title") or "", url=watch_url,
+                 channel=info.get("channel") or info.get("uploader"),
+                 channel_url=(info.get("channel_url") or "").removesuffix("/") or None,
+                 upload_date=info.get("upload_date"), duration=info.get("duration"),
+                 view_count=info.get("view_count"))
 
 
 def fetch_captions(video_id: str) -> tuple[str, list[Segment]]:

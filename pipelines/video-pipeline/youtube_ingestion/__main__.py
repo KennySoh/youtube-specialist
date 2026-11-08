@@ -217,7 +217,7 @@ def import_command(args) -> None:
             print(f"- {c.slug}/{vid} already has a transcript; leaving {path.name}")
             continue
         video.title = video.title or data.get("title", "")
-        c.write_transcript(video, "browser", segments)
+        c.write_transcript(video, "browser", segments, str(data.get("captured_at", ""))[:10] or None)
         statuses = c.statuses()
         if statuses.pop(vid, None) is not None:
             c.save_statuses(statuses)
@@ -226,6 +226,30 @@ def import_command(args) -> None:
         print(f"browser      {c.slug}/{vid}  {video.title[:50]}  ({len(segments)} segments)")
     for c in touched.values():
         finish(c)
+
+
+def reprocess_command(args) -> None:
+    """Rebuild transcripts from raw/ only (fetched captions, then bookmarklet captures). No network."""
+    if args.slug and not Collection(args.slug).dir.exists():
+        raise acquire.UserError(f"Unknown collection '{args.slug}' — see ./yt list")
+    for c in [Collection(args.slug)] if args.slug else Collection.all():
+        rebuilt = 0
+        for video in c.videos():
+            if raw := c.load_raw(video.id):
+                captions, segments, fetched_at = raw
+            elif c.capture_path(video.id).exists():
+                try:
+                    data, segments = acquire.read_capture(c.capture_path(video.id))
+                except acquire.BadCapture as err:
+                    print(f"✗ {c.slug}/{video.id}: {err}")
+                    continue
+                captions, fetched_at = "browser", str(data.get("captured_at", ""))[:10] or None
+            else:
+                continue
+            c.write_transcript(video, captions, segments, fetched_at)
+            rebuilt += 1
+        finish(c)
+        print(f"{c.slug}: rebuilt {rebuilt} transcripts from raw/")
 
 
 def bookmarklet_command(_args) -> None:
@@ -269,6 +293,9 @@ def main() -> None:
     i = sub.add_parser("import", help="turn transcripts saved with the bookmarklet into .md files (no network)")
     i.add_argument("dir", nargs="?", default="~/Downloads")
     i.set_defaults(run=import_command)
+    r = sub.add_parser("reprocess", help="rebuild transcripts from raw/ only (no network)")
+    r.add_argument("slug", nargs="?")
+    r.set_defaults(run=reprocess_command)
     sub.add_parser("bookmarklet", help="print the 'Save transcript' bookmarklet").set_defaults(run=bookmarklet_command)
     args = p.parse_args()
 

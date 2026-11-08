@@ -281,3 +281,23 @@ def test_rebuilt_transcript_replaces_old_name():
     c.write_transcript(Video(id=VIDEO.id, title="Old title"), "auto", [Segment(0, "hi")])
     c.write_transcript(VIDEO, "auto", [Segment(0, "hi")])
     assert [p.name for p in c.transcript_files().values()] == ["2026-01-02-hello-world-abcdefghijk.md"]
+
+
+def test_reprocess_uses_raw_only(monkeypatch):
+    c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
+    other = Video(id="bbbbbbbbbbb", title="captured")
+    none = Video(id="ccccccccccc", title="nothing raw")
+    c.save_videos([VIDEO, other, none])
+    c.save_raw(VIDEO, "auto", [Segment(0, "fetched words")])
+    (store.RAW / "ch" / "bbbbbbbbbbb.browser.json").write_text(json.dumps(
+        {"video_id": "bbbbbbbbbbb", "captured_at": "2026-05-06T00:00:00Z", "segments": [{"t": "0:05", "text": "clicked"}]}))
+    c.write_transcript(VIDEO, "auto", [Segment(0, "stale words")])
+    monkeypatch.setattr(acquire, "fetch_captions", no_requests)
+    monkeypatch.setattr(acquire.requests, "get", no_requests)
+    cli.reprocess_command(type("Args", (), {"slug": "ch"})())
+    files = c.transcript_files()
+    assert sorted(files) == [VIDEO.id, "bbbbbbbbbbb"]
+    assert "fetched words" in files[VIDEO.id].read_text() and "stale" not in files[VIDEO.id].read_text()
+    fm, body = process.read(files["bbbbbbbbbbb"])
+    assert fm["transcript_source"] == "browser" and fm["fetched_at"] == "2026-05-06" and "[00:05] clicked" in body
+    assert "nothing raw" in (c.dir / "missing.log").read_text()

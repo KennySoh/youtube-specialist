@@ -1,4 +1,4 @@
-"""./books [slug ...] [--force]: convert the books in knowledge-library/books/books.txt.
+"""./scripts/books.sh [slug ...] [--force]: convert the books in knowledge-library/books/books.txt.
 
 books.txt paths are relative to BOOKS_DIR (raw/books by default; mounted read-only at /books).
 Books have no ACQUIRE step yet: you put the PDFs in raw/books/ yourself.
@@ -24,7 +24,7 @@ def convert(slug: str, pdf: Path, force: bool) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(prog="./books", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="./scripts/books.sh", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("slugs", nargs="*", help="books to convert (default: all in books.txt)")
     ap.add_argument("--force", action="store_true", help="re-convert existing books")
     args = ap.parse_args()

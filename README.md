@@ -34,7 +34,7 @@ my-ai-brain/
 │
 ├── experts/                # Expert definitions and source rules
 ├── .claude/skills/         # Claude Code integration
-├── scripts/                # CLI commands and tests (./yt and ./books are shortcuts)
+├── scripts/                # CLI commands and tests: yt.sh, books.sh, test.sh
 ├── docs/
 └── compose.yaml
 ```
@@ -47,19 +47,19 @@ acquired automatically; books are added by hand.
 Requires Docker.
 
 ```bash
-./yt setup
+./scripts/yt.sh setup
 cp .env.example .env       # optional configuration
 ```
 
 ### YouTube
 
 ```bash
-./yt add "https://youtube.com/@channel" "Channel Name"
-./yt grab "https://youtu.be/VIDEO_ID" business
-./yt update                # fetch new and missing videos
-./yt list                  # progress and request budget
-./yt todo                  # videos still missing
-./yt reprocess             # rebuild Markdown from saved raw captions
+./scripts/yt.sh add "https://youtube.com/@channel" "Channel Name"
+./scripts/yt.sh grab "https://youtu.be/VIDEO_ID" business
+./scripts/yt.sh update                # fetch new and missing videos
+./scripts/yt.sh list                  # progress and request budget
+./scripts/yt.sh todo                  # videos still missing
+./scripts/yt.sh reprocess             # rebuild Markdown from saved raw captions
 ```
 
 Transcripts are saved in `knowledge-library/youtube/` with `[mm:ss]` timestamps.
@@ -67,16 +67,16 @@ Transcripts are saved in `knowledge-library/youtube/` with `[mm:ss]` timestamps.
 YouTube requests are rate-limited (about 50 a day). A 429 triggers a 24-hour block. Captions already
 saved in `raw/` are reused instead of fetched again.
 
-For videos the tool can't get, use `./yt bookmarklet` and `./yt import`.
+For videos the tool can't get, use `./scripts/yt.sh bookmarklet` and `./scripts/yt.sh import`.
 
 ### Books
 
 Place PDFs in `raw/books/` and register them in `knowledge-library/books/books.txt`.
 
 ```bash
-./books                    # convert all registered books
-./books the-mom-test       # convert one book
-./books the-mom-test --force
+./scripts/books.sh                    # convert all registered books
+./scripts/books.sh the-mom-test       # convert one book
+./scripts/books.sh the-mom-test --force
 ```
 
 Books become Markdown chapters with `<!-- p.N -->` PDF page markers.
@@ -102,7 +102,7 @@ Create a new expert from `experts/_template/`.
 Run YouTube updates daily:
 
 ```cron
-0 3 * * * cd /path/to/my-ai-brain && ./yt update >> fetch.log 2>&1
+0 3 * * * cd /path/to/my-ai-brain && ./scripts/yt.sh update >> fetch.log 2>&1
 ```
 
 Run the offline tests:

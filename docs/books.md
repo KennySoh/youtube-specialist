@@ -1,17 +1,17 @@
 # Book pipeline
 
 Code: `pipelines/book-pipeline/book_ingestion/`. Runs in its own Docker image (PyMuPDF + Tesseract)
-through `./books` (`scripts/books.sh`).
+through `./scripts/books.sh`.
 
 ```
-raw/books/*.pdf ──./books──► knowledge-library/books/<slug>/chapters/ ──/extract-book──► notes.md ──► role experts
+raw/books/*.pdf ──./scripts/books.sh──► knowledge-library/books/<slug>/chapters/ ──/extract-book──► notes.md ──► role experts
 ```
 
 ## Adding a book
 
 1. Put the PDF under `raw/books/` (or point `BOOKS_DIR` in `.env` at another folder).
 2. Add a line to `knowledge-library/books/books.txt`: `<slug> <path relative to raw/books>`.
-3. `./books <slug>` converts it (`./books` alone converts every book not converted yet; `--force` redoes it).
+3. `./scripts/books.sh <slug>` converts it (`./scripts/books.sh` alone converts every book not converted yet; `--force` redoes it).
 4. In Claude Code: `/extract-book <slug>` writes `notes.md`.
 
 Open book work (books still to extract, role refinements) is tracked in `knowledge-library/books/plan.md`.

@@ -68,4 +68,4 @@ You are a {{topic}} consultant whose entire opinion base is grounded in **{{Chan
 
 ## Maintenance
 
-- Refresh the corpus with `./yt update {{slug}}` from the repo root. Don't scrape from inside this skill.
+- Refresh the corpus with `./scripts/yt.sh update {{slug}}` from the repo root. Don't scrape from inside this skill.

@@ -1,4 +1,4 @@
-"""The ./yt commands. The only module that uses both acquire.py (requests) and store.py (disk)."""
+"""The ./scripts/yt.sh commands. The only module that uses both acquire.py (requests) and store.py (disk)."""
 from __future__ import annotations
 
 import argparse
@@ -130,7 +130,7 @@ def add(args) -> None:
         update(c, first=video)
     else:
         if not args.name:
-            raise SystemExit('Usage: ./yt add <channel_url> "<Name>" [slug]   or   ./yt add <video_url>')
+            raise SystemExit('Usage: ./scripts/yt.sh add <channel_url> "<Name>" [slug]   or   ./scripts/yt.sh add <video_url>')
         c = Collection.create(args.slug or slugify(args.name), args.url, args.name)
         update(c)
     print(f"\n{SKILL_HINT.format(c.slug)}")
@@ -139,7 +139,7 @@ def add(args) -> None:
 def grab(args) -> None:
     slug = slugify(args.topic)
     if Collection(slug).channel_url:
-        raise SystemExit(f"{slug} is a channel collection; use ./yt add for channels.")
+        raise SystemExit(f"{slug} is a channel collection; use ./scripts/yt.sh add for channels.")
     video = acquire.lookup_video(args.url)
     c = Collection.create(slug)
     print(f'→ "{video.title}" ({video.channel}) into {c.slug}')
@@ -150,7 +150,7 @@ def update_command(args) -> None:
     if args.slug:
         c = Collection(args.slug)
         if not c.channel_url:
-            raise SystemExit(f"Unknown channel '{args.slug}' — see ./yt list")
+            raise SystemExit(f"Unknown channel '{args.slug}' — see ./scripts/yt.sh list")
         update(c)
     else:
         update_many(Collection.channels())
@@ -193,7 +193,7 @@ def todo_command(args) -> None:
     if opened and not all(opened):
         print("(no browser here, e.g. inside Docker: open the links above yourself)")
     if rows:
-        print("\nOpen the transcript panel, click the Save transcript bookmark, then: ./yt import")
+        print("\nOpen the transcript panel, click the Save transcript bookmark, then: ./scripts/yt.sh import")
 
 
 def import_command(args) -> None:
@@ -213,7 +213,7 @@ def import_command(args) -> None:
             continue
         vid = data["video_id"]
         if vid not in owners:
-            print(f"✗ {path.name}: {vid} isn't in any collection; add it first (./yt grab <url> <topic>)")
+            print(f"✗ {path.name}: {vid} isn't in any collection; add it first (./scripts/yt.sh grab <url> <topic>)")
             continue
         c, video = owners[vid]
         if vid in c.transcript_files():
@@ -234,7 +234,7 @@ def import_command(args) -> None:
 def reprocess_command(args) -> None:
     """Rebuild transcripts from raw/ only (fetched captions, then bookmarklet captures). No network."""
     if args.slug and not Collection(args.slug).dir.exists():
-        raise acquire.UserError(f"Unknown collection '{args.slug}' — see ./yt list")
+        raise acquire.UserError(f"Unknown collection '{args.slug}' — see ./scripts/yt.sh list")
     for c in [Collection(args.slug)] if args.slug else Collection.all():
         rebuilt = 0
         for video in c.videos():
@@ -268,12 +268,12 @@ def lock():
     try:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        raise SystemExit("Another ./yt run is already fetching; not starting a second one.")
+        raise SystemExit("Another ./scripts/yt.sh run is already fetching; not starting a second one.")
     return f
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(prog="./yt", description="Turn YouTube channels into transcript collections.")
+    p = argparse.ArgumentParser(prog="./scripts/yt.sh", description="Turn YouTube channels into transcript collections.")
     sub = p.add_subparsers(dest="command", required=True, metavar="command")
     a = sub.add_parser("add", help="add a channel (by its URL, or any of its videos) and fetch everything")
     a.add_argument("url", help="channel URL, or a video URL (that video is fetched first)")
@@ -309,7 +309,7 @@ def main() -> None:
     except acquire.UserError as err:
         sys.exit(str(err))
     except request_guard.Stop as stop:
-        print(f"⏸ {stop}. Progress is saved; run ./yt update again later.")
+        print(f"⏸ {stop}. Progress is saved; run ./scripts/yt.sh update again later.")
     except KeyboardInterrupt:
         sys.exit(130)
 

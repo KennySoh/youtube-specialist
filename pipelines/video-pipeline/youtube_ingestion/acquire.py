@@ -8,7 +8,7 @@
 
 2. From your own browser (no requests): the bookmarklet (save_transcript.js) saves the open transcript
    panel as <video_id>.transcript.json: {video_id, title, channel, url, captured_at, segments: [{t, text}],
-   panel_text}. read_capture() turns it into segments; ./yt import stores them (transcript_source: browser).
+   panel_text}. read_capture() turns it into segments; ./scripts/yt.sh import stores them (transcript_source: browser).
 """
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ def lookup_video(url: str) -> Video:
         raise request_guard.block("429", video_id, "oEmbed HTTP 429", retry_after(r))
     if r.status_code == 401:
         raise UserError(f"{video_id}: the owner disabled embedding, so its channel can't be looked up. "
-                         'Use the channel URL instead: ./yt add <channel_url> "<Name>"')
+                         'Use the channel URL instead: ./scripts/yt.sh add <channel_url> "<Name>"')
     if r.status_code != 200:
         raise UserError(f"{video_id}: video not found, private or removed (HTTP {r.status_code})")
     info = r.json()

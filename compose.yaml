@@ -1,4 +1,4 @@
-# Used by ./yt (scripts/yt.sh). Data stays on the host; .env sets the limits.
+# Used by ./scripts/yt.sh (scripts/yt.sh). Data stays on the host; .env sets the limits.
 services:
   yt:
     build: pipelines/video-pipeline
@@ -7,7 +7,7 @@ services:
     volumes:
       - ./knowledge-library/youtube:/library
       - ./raw/youtube:/raw
-      - ${HOME}/Downloads:/downloads        # ./yt import reads bookmarklet files from here
+      - ${HOME}/Downloads:/downloads        # ./scripts/yt.sh import reads bookmarklet files from here
       - /etc/localtime:/etc/localtime:ro    # same day boundary for the daily budget as the host
     environment:
       YT_DOWNLOADS: /downloads

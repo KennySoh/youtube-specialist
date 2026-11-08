@@ -53,7 +53,7 @@ waiting 24 hours. Much of the YouTube design exists to never trigger one.
 
 ## 5. Data flows
 
-**YouTube ingestion** (`./yt update`)
+**YouTube ingestion** (`./scripts/yt.sh update`)
 1. Take the run lock (one ingestion run at a time).
 2. For each channel due for a listing (at most once a day), list its videos and merge them into `videos.json`.
 3. Queue the videos without a transcript, channels taken in turn (round-robin).
@@ -62,7 +62,7 @@ waiting 24 hours. Much of the YouTube design exists to never trigger one.
 5. Process into a transcript and store it; record failures in `status.json`.
 6. Always finish with dated file names, `INDEX.md` and `missing.log`, even after a Stop.
 
-**Book ingestion** (`./books <slug>`)
+**Book ingestion** (`./scripts/books.sh <slug>`)
 1. Read `books.txt` → PDF in `raw/books/`.
 2. Process: extract text (OCR if scanned), find chapters (outline → bold headings → 25-page parts).
 3. Store: rewrite `chapters/` only. `notes.md` is never touched.
@@ -84,7 +84,7 @@ waiting 24 hours. Much of the YouTube design exists to never trigger one.
 | `knowledge-library/` | Processed Markdown and per-source metadata; `.guard.json` and `.lock` for YouTube |
 | `experts/` | Expert definitions; `_template/` for new ones |
 | `.claude/skills/` | Claude Code entry points; role skills are also linked into `~/.claude/skills/` |
-| `scripts/` | `yt.sh`, `books.sh`, `test.sh` (`./yt`, `./books` at the root are symlinks) |
+| `scripts/` | `yt.sh`, `books.sh`, `test.sh`: every command |
 | `docs/` | This file and the two pipeline docs |
 
 Git holds only the tools and `experts/_template/`; `raw/`, `knowledge-library/`, `experts/` and

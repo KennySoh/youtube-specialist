@@ -1,24 +1,24 @@
 # YouTube pipeline
 
-Code: `pipelines/video-pipeline/youtube_ingestion/`. Runs in Docker through `./yt` (`scripts/yt.sh`).
+Code: `pipelines/video-pipeline/youtube_ingestion/`. Runs in Docker through `./scripts/yt.sh`.
 
 ## Commands
 
 ```bash
-./yt setup                                   # build the image
-./yt add <channel_url> "<Name>" [slug]       # add a channel collection, list its videos, fetch transcripts
-./yt add <video_url>                         # same; the channel is found from one of its videos
-./yt grab <video_url> <topic>                # one video into a hand-picked topic collection
-./yt update [slug]                           # list new videos + fetch missing transcripts (all channels or one)
-./yt list                                    # progress per collection and the guard state (no network)
-./yt todo [slug] [-n N] [--open N]           # missing videos, the ones that failed 3 times first (no network)
-./yt reprocess [slug]                        # rebuild transcripts from raw/ only (no network)
-./yt bookmarklet                             # print the "Save transcript" bookmarklet
-./yt import [dir]                            # bookmarklet files → transcripts (default ~/Downloads, no network)
+./scripts/yt.sh setup                                   # build the image
+./scripts/yt.sh add <channel_url> "<Name>" [slug]       # add a channel collection, list its videos, fetch transcripts
+./scripts/yt.sh add <video_url>                         # same; the channel is found from one of its videos
+./scripts/yt.sh grab <video_url> <topic>                # one video into a hand-picked topic collection
+./scripts/yt.sh update [slug]                           # list new videos + fetch missing transcripts (all channels or one)
+./scripts/yt.sh list                                    # progress per collection and the guard state (no network)
+./scripts/yt.sh todo [slug] [-n N] [--open N]           # missing videos, the ones that failed 3 times first (no network)
+./scripts/yt.sh reprocess [slug]                        # rebuild transcripts from raw/ only (no network)
+./scripts/yt.sh bookmarklet                             # print the "Save transcript" bookmarklet
+./scripts/yt.sh import [dir]                            # bookmarklet files → transcripts (default ~/Downloads, no network)
 ```
 
-`./yt update` with no slug takes the channels in turn, so one big channel can't use up the day's budget.
-A channel is listed at most once a day. After `./yt add`, ask Claude Code to *"create the <slug>
+`./scripts/yt.sh update` with no slug takes the channels in turn, so one big channel can't use up the day's budget.
+A channel is listed at most once a day. After `./scripts/yt.sh add`, ask Claude Code to *"create the <slug>
 expert from experts/_template/"*.
 
 ## Rate limits (the guard)
@@ -61,23 +61,23 @@ knowledge-library/youtube/<slug>/
 
 ## Videos the tool can't get (bookmarklet)
 
-1. `./yt bookmarklet` prints a `javascript:` URL: save it as a bookmark called *Save transcript*.
-2. `./yt todo` lists the missing videos (inside Docker, `--open` can't start a browser; click the links).
+1. `./scripts/yt.sh bookmarklet` prints a `javascript:` URL: save it as a bookmark called *Save transcript*.
+2. `./scripts/yt.sh todo` lists the missing videos (inside Docker, `--open` can't start a browser; click the links).
 3. On each: open the transcript panel (*Show transcript*, or *In this video › Timeline*), click the bookmark.
    It saves `<id>.transcript.json` to Downloads. It only reads what's on screen and sends nothing.
-4. `./yt import` writes the transcripts (`transcript_source: browser`), updates `INDEX.md` and
+4. `./scripts/yt.sh import` writes the transcripts (`transcript_source: browser`), updates `INDEX.md` and
    `missing.log`, and moves the files to `raw/youtube/<slug>/`.
 
 Only videos already in a collection are imported.
 
 ## Troubleshooting
 
-- **Blocked:** `./yt list` shows until when. Wait it out; don't delete `.guard.json` or retry by hand.
-- **"Another ./yt run is already fetching":** a run (maybe cron) is still going; wait for it.
+- **Blocked:** `./scripts/yt.sh list` shows until when. Wait it out; don't delete `.guard.json` or retry by hand.
+- **"Another ./scripts/yt.sh run is already fetching":** a run (maybe cron) is still going; wait for it.
 - **Channel listing breaks:** raise `yt-dlp` and `yt-dlp-ejs` in `pipelines/video-pipeline/requirements.txt`,
-  then `./yt setup`.
+  then `./scripts/yt.sh setup`.
 - **No captions:** a video marked `no_captions` or `unavailable` is never asked for again; `failed` is
-  retried up to 3 times, then listed first by `./yt todo` for the bookmarklet.
+  retried up to 3 times, then listed first by `./scripts/yt.sh todo` for the bookmarklet.
 
 ## Tests
 

@@ -1,5 +1,5 @@
-/* "Save transcript" bookmarklet (./yt bookmarklet prints it). On a YouTube watch page with the
-   transcript panel open, it saves what the panel shows as <video_id>.transcript.json for ./yt import.
+/* "Save transcript" bookmarklet (./scripts/yt.sh bookmarklet prints it). On a YouTube watch page with the
+   transcript panel open, it saves what the panel shows as <video_id>.transcript.json for ./scripts/yt.sh import.
    It only reads the page that is already on screen: no requests. */
 (function () {
   var id = new URLSearchParams(location.search).get("v") ||
@@ -38,5 +38,5 @@
   a.download = id + ".transcript.json";
   document.body.appendChild(a); a.click(); a.remove();
   alert(segments.length ? "Saved " + segments.length + " segments for " + id
-    : "Saved the panel text for " + id + " (./yt import will parse it)");
+    : "Saved the panel text for " + id + " (./scripts/yt.sh import will parse it)");
 })();

@@ -1,6 +1,6 @@
 """Everything on disk. No network.
 
-library/<slug>/           one collection
+knowledge-library/youtube/<slug>/           one collection
   channel_url, channel_name   channel collections only (no channel_url = topic collection)
   videos.json             every video we know of
   status.json             why a video has no transcript: no_captions, unavailable or failed
@@ -20,8 +20,8 @@ import yaml
 from . import transcript
 from .transcript import Segment, Video
 
-# YT_LIBRARY overrides it (Docker, tests); otherwise library/ next to ytspec/, wherever ./yt is run from.
-ROOT = Path(os.environ.get("YT_LIBRARY") or Path(__file__).resolve().parent.parent / "library")
+# YT_LIBRARY overrides it (Docker, tests); otherwise <repo>/knowledge-library/youtube, wherever ./yt is run from.
+ROOT = Path(os.environ.get("YT_LIBRARY") or Path(__file__).resolve().parents[3] / "knowledge-library" / "youtube")
 MAX_ATTEMPTS = 3        # a failed video is tried again on the next runs, this many times in all
 
 

@@ -13,7 +13,7 @@ import subprocess
 
 import requests
 
-from . import guard
+from . import request_guard
 from .transcript import Segment, Video
 
 VIDEO_URL = re.compile(r"(?:[?&]v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})")
@@ -56,7 +56,7 @@ def last_error(stderr: str) -> str:
 def list_channel(channel_url: str) -> list[Video]:
     """Every video yt-dlp can see. If YouTube cuts it short with a 429, the guard is blocked
     (so the next request stops) but the videos found so far are still returned."""
-    guard.allow()
+    request_guard.allow()
     proc = subprocess.run(["yt-dlp", "--flat-playlist", "--print-json", "--ignore-errors", "--sleep-requests", "5",
                            "--extractor-args", "youtubetab:approximate_date", channel_url],
                           capture_output=True, text=True, check=False)
@@ -79,8 +79,8 @@ def list_channel(channel_url: str) -> list[Video]:
             ))
     if reason := block_reason(proc.stderr):
         print(f"yt-dlp: {last_error(proc.stderr)}")
-        # Don't raise: the caller saves this partial listing first; the next guard.allow() raises the Stop.
-        guard.block(reason, channel_url, last_error(proc.stderr))
+        # Don't raise: the caller saves this partial listing first; the next request_guard.allow() raises the Stop.
+        request_guard.block(reason, channel_url, last_error(proc.stderr))
     elif not videos:
         raise UserError(f"yt-dlp found no videos: {last_error(proc.stderr)}")
     return videos
@@ -92,13 +92,13 @@ def lookup_video(url: str) -> Video:
         raise UserError(f"Not a YouTube video link: {url}")
     video_id = m.group(1)
     watch_url = f"https://www.youtube.com/watch?v={video_id}"
-    guard.allow()
+    request_guard.allow()
     try:
         r = requests.get("https://www.youtube.com/oembed", params={"url": watch_url, "format": "json"}, timeout=20)
     except requests.RequestException as err:
         raise UserError(f"Couldn't reach YouTube: {err}")
     if r.status_code == 429:
-        raise guard.block("429", video_id, "oEmbed HTTP 429", retry_after(r))
+        raise request_guard.block("429", video_id, "oEmbed HTTP 429", retry_after(r))
     if r.status_code == 401:
         raise UserError(f"{video_id}: the owner disabled embedding, so its channel can't be looked up. "
                          'Use the channel URL instead: ./yt add <channel_url> "<Name>"')
@@ -110,11 +110,11 @@ def lookup_video(url: str) -> Video:
 
 
 def fetch_captions(video_id: str) -> tuple[str, list[Segment]]:
-    """('manual' or 'auto', segments). Raises NoTranscript, or guard.Stop if YouTube is limiting us."""
+    """('manual' or 'auto', segments). Raises NoTranscript, or request_guard.Stop if YouTube is limiting us."""
     from youtube_transcript_api import YouTubeTranscriptApi
     from youtube_transcript_api import _errors as e
 
-    guard.allow(paced=True)
+    request_guard.allow(paced=True)
     seen_retry_after: list[float] = []
 
     def remember_retry_after(response, *_args, **_kwargs):  # the library raises IpBlocked and drops the response
@@ -126,9 +126,9 @@ def fetch_captions(video_id: str) -> tuple[str, list[Segment]]:
     try:
         t = YouTubeTranscriptApi(http_client=session).fetch(video_id, languages=LANGUAGES)
     except e.IpBlocked as err:  # HTTP 429 or a captcha page
-        raise guard.block("429", video_id, type(err).__name__, max(seen_retry_after, default=None))
+        raise request_guard.block("429", video_id, type(err).__name__, max(seen_retry_after, default=None))
     except (e.RequestBlocked, e.FailedToCreateConsentCookie) as err:
-        raise guard.block("bot_check", video_id, type(err).__name__)
+        raise request_guard.block("bot_check", video_id, type(err).__name__)
     except (e.TranscriptsDisabled, e.NoTranscriptFound) as err:
         raise NoTranscript("no_captions", type(err).__name__)
     except (e.VideoUnavailable, e.InvalidVideoId, e.AgeRestricted, e.VideoUnplayable) as err:

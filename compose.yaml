@@ -1,10 +1,10 @@
-# docker compose run --rm yt <command>   (library/ and .env stay on the host)
+# docker compose run --rm yt <command>   (knowledge-library/youtube/ and .env stay on the host)
 services:
   yt:
-    build: .
+    build: pipelines/video-pipeline
     user: "1000:1000"
     volumes:
-      - ./library:/app/library
+      - ./knowledge-library/youtube:/library
       - /etc/localtime:/etc/localtime:ro   # same day boundary for the daily budget as the host
     env_file:
       - path: .env

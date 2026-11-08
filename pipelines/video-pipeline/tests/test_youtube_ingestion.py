@@ -5,17 +5,17 @@ import json
 
 import pytest
 
-from ytspec import __main__ as cli
-from ytspec import guard, library, transcript, youtube
-from ytspec.library import Collection
-from ytspec.transcript import Segment, Video
+from youtube_ingestion import __main__ as cli
+from youtube_ingestion import knowledge_library, request_guard, transcript, youtube_client
+from youtube_ingestion.knowledge_library import Collection
+from youtube_ingestion.transcript import Segment, Video
 
 
 @pytest.fixture(autouse=True)
 def tmp_library(tmp_path, monkeypatch):
     """Every test gets an empty library and a fresh guard, with no waiting between requests."""
-    monkeypatch.setattr(library, "ROOT", tmp_path / "library")
-    monkeypatch.setattr(guard, "GAP_SECONDS", (0, 0))
+    monkeypatch.setattr(knowledge_library, "ROOT", tmp_path / "library")
+    monkeypatch.setattr(request_guard, "GAP_SECONDS", (0, 0))
     return tmp_path
 
 
@@ -47,20 +47,20 @@ def test_transcript_format():
     ({"status": "unavailable", "attempts": 1}, True),
 ])
 def test_gave_up(status, gave_up):
-    assert library.gave_up(status) == gave_up
+    assert knowledge_library.gave_up(status) == gave_up
 
 
 def test_budget():
-    for _ in range(guard.DAILY_LIMIT):
-        guard.allow()
-    with pytest.raises(guard.Stop, match="daily budget"):
-        guard.allow()
+    for _ in range(request_guard.DAILY_LIMIT):
+        request_guard.allow()
+    with pytest.raises(request_guard.Stop, match="daily budget"):
+        request_guard.allow()
 
 
 def test_block_stops_every_request():
-    guard.block("429", "abcdefghijk", "IpBlocked")
-    with pytest.raises(guard.Stop, match="blocked by YouTube"):
-        guard.allow()
+    request_guard.block("429", "abcdefghijk", "IpBlocked")
+    with pytest.raises(request_guard.Stop, match="blocked by YouTube"):
+        request_guard.allow()
 
 
 @pytest.mark.parametrize("stderr, expected", [
@@ -70,7 +70,7 @@ def test_block_stops_every_request():
     ("ERROR: [youtube] abc: HTTP Error 404: Not Found", None),
 ])
 def test_block_reason(stderr, expected):
-    assert youtube.block_reason(stderr) == expected
+    assert youtube_client.block_reason(stderr) == expected
 
 
 def fake_captions(results: dict):
@@ -85,8 +85,8 @@ def fake_captions(results: dict):
 def test_fetch_records_status_and_missing_log(monkeypatch):
     c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
     c.save_videos([Video(id="aaaaaaaaaaa", title="has captions"), Video(id="bbbbbbbbbbb", title="none")])
-    monkeypatch.setattr(youtube, "fetch_captions", fake_captions({
-        "aaaaaaaaaaa": None, "bbbbbbbbbbb": youtube.NoTranscript("no_captions", "TranscriptsDisabled")}))
+    monkeypatch.setattr(youtube_client, "fetch_captions", fake_captions({
+        "aaaaaaaaaaa": None, "bbbbbbbbbbb": youtube_client.NoTranscript("no_captions", "TranscriptsDisabled")}))
     cli.update(c, only=True)  # only: skip listing (no network)
     assert list(c.transcript_files()) == ["aaaaaaaaaaa"]
     assert c.statuses()["bbbbbbbbbbb"]["status"] == "no_captions"
@@ -97,7 +97,7 @@ def test_fetch_records_status_and_missing_log(monkeypatch):
 def test_grab_fetches_only_that_video(monkeypatch):
     c = Collection.create("topic")
     c.save_videos([Video(id="otherVideo1", title="pending")])
-    monkeypatch.setattr(youtube, "fetch_captions", fake_captions({"-wNyEUrxzFU": None}))
+    monkeypatch.setattr(youtube_client, "fetch_captions", fake_captions({"-wNyEUrxzFU": None}))
     cli.update(c, first=Video(id="-wNyEUrxzFU", title="dash"), only=True)
     assert list(c.transcript_files()) == ["-wNyEUrxzFU"]
 
@@ -106,8 +106,8 @@ def test_failures_in_a_row_stop_the_run(monkeypatch):
     c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
     ids = [f"vid{i:08d}" for i in range(5)]
     c.save_videos([Video(id=i) for i in ids])
-    monkeypatch.setattr(youtube, "fetch_captions", fake_captions({i: youtube.NoTranscript("failed", "x") for i in ids}))
-    with pytest.raises(guard.Stop):
+    monkeypatch.setattr(youtube_client, "fetch_captions", fake_captions({i: youtube_client.NoTranscript("failed", "x") for i in ids}))
+    with pytest.raises(request_guard.Stop):
         cli.update(c, only=True)
     assert len(c.statuses()) == cli.MAX_FAILED_IN_A_ROW
 
@@ -131,18 +131,18 @@ def test_videos_json_keeps_its_keys():
 
 
 def test_bad_video_link_is_a_user_error():
-    with pytest.raises(youtube.UserError, match="Not a YouTube video link"):
-        youtube.lookup_video("https://example.com/watch")
-    assert guard.used_today(guard.state()) == 0  # rejected before any request was counted
+    with pytest.raises(youtube_client.UserError, match="Not a YouTube video link"):
+        youtube_client.lookup_video("https://example.com/watch")
+    assert request_guard.used_today(request_guard.state()) == 0  # rejected before any request was counted
 
 
 def test_record_failure_counts_attempts():
     statuses: dict = {}
-    library.record_failure(statuses, "abcdefghijk", "failed", "x")
-    library.record_failure(statuses, "abcdefghijk", "failed", "y")
+    knowledge_library.record_failure(statuses, "abcdefghijk", "failed", "x")
+    knowledge_library.record_failure(statuses, "abcdefghijk", "failed", "y")
     assert statuses["abcdefghijk"] == {"status": "failed", "attempts": 2, "error": "y"}
-    library.record_failure(statuses, "abcdefghijk", "failed", "z")
-    assert library.gave_up(statuses["abcdefghijk"])
+    knowledge_library.record_failure(statuses, "abcdefghijk", "failed", "z")
+    assert knowledge_library.gave_up(statuses["abcdefghijk"])
 
 
 def test_round_robin_interleaves_channels():
@@ -155,7 +155,7 @@ def test_update_many_takes_turns(monkeypatch):
     small.save_videos([Video(id="small000000")])
     order = []
     monkeypatch.setattr(cli, "list_if_due", lambda c: None)
-    monkeypatch.setattr(youtube, "fetch_captions", lambda vid: order.append(vid) or ("auto", [Segment(0, "x")]))
+    monkeypatch.setattr(youtube_client, "fetch_captions", lambda vid: order.append(vid) or ("auto", [Segment(0, "x")]))
     cli.update_many([big, small])
     assert order[:2] == ["big00000000", "small000000"]
 
@@ -176,7 +176,7 @@ late one
 
 
 def test_panel_text_parsing():
-    from ytspec import browser
+    from youtube_ingestion import browser
     segs = browser.parse_panel_text(TIMELINE_PANEL)
     assert [(s.start, s.text) for s in segs] == [(0, "hello there"), (65, "second line"), (3723, "late one")]
 
@@ -184,7 +184,7 @@ def test_panel_text_parsing():
 def test_import_writes_transcript_and_moves_file(tmp_path):
     c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
     c.save_videos([VIDEO])
-    library.record_failure(st := {}, VIDEO.id, "failed", "x")
+    knowledge_library.record_failure(st := {}, VIDEO.id, "failed", "x")
     c.save_statuses(st)
     downloads = tmp_path / "dl"
     downloads.mkdir()
@@ -198,7 +198,7 @@ def test_import_writes_transcript_and_moves_file(tmp_path):
     assert fm["transcript_source"] == "browser" and fm["published_at"] == "2026-01-02"
     assert "[00:00] a\n[00:31] b" in body
     assert c.statuses() == {}
-    assert (library.ROOT / "_imported" / f"{VIDEO.id}.transcript.json").exists()
+    assert (knowledge_library.ROOT / "_imported" / f"{VIDEO.id}.transcript.json").exists()
     assert sorted(p.name for p in downloads.iterdir()) == ["yyyyyyyyyyy.transcript.json", "zzzzzzzzzzz.transcript.json"]
     assert path.name in (c.transcripts / "INDEX.md").read_text()
 
@@ -209,8 +209,8 @@ def test_todo_lists_given_up_videos_first(capsys):
                    Video(id="none0000000", title="no captions")])
     st: dict = {}
     for _ in range(3):
-        library.record_failure(st, "hard0000000", "failed", "x")
-    library.record_failure(st, "none0000000", "no_captions", "x")
+        knowledge_library.record_failure(st, "hard0000000", "failed", "x")
+    knowledge_library.record_failure(st, "none0000000", "no_captions", "x")
     c.save_statuses(st)
     cli.todo_command(type("Args", (), {"slug": None, "n": 20, "open": 0})())
     lines = [ln for ln in capsys.readouterr().out.splitlines() if "ch/" in ln]

@@ -26,15 +26,15 @@ answer questions as a given YouTuber and cite `[mm:ss]` timestamps.
 ./yt bookmarklet                        print the Save transcript bookmarklet
 ```
 
-`./yt` is a 14-line bash wrapper. It runs `setup`, loads `.env`, then runs `python -m ytspec`.
-Docker: `docker compose run --rm yt <command>`, with `library/` mounted from the host.
+`./yt` is a 14-line bash wrapper. It runs `setup`, loads `.env`, then runs `python -m youtube_ingestion`.
+Docker: `docker compose run --rm yt <command>`, with `knowledge-library/youtube/` mounted from the host.
 
 ## Vocabulary (used in the code)
 
 | Word | Meaning |
 |---|---|
-| library | `library/`: every collection |
-| collection | one folder `library/<slug>/`. A **channel collection** has a `channel_url`; a **topic collection** doesn't |
+| library | `knowledge-library/youtube/`: every collection |
+| collection | one folder `knowledge-library/youtube/<slug>/`. A **channel collection** has a `channel_url`; a **topic collection** doesn't |
 | video | one entry in `videos.json` |
 | captions | what YouTube has: `manual` or `auto` |
 | transcript | our `.md` file built from the captions, in ~30 s `[mm:ss]` paragraphs |
@@ -46,42 +46,42 @@ Docker: `docker compose run --rm yt <command>`, with `library/` mounted from the
 
 ```
 yt                    bash wrapper (14 lines)
-ytspec/
+pipelines/video-pipeline/youtube_ingestion/
   __main__.py   175   argparse commands; fetch loop (fetch_transcripts); update = list + fetch + write index; file lock (fcntl)
-  youtube.py    137   all network: list_channel (yt-dlp subprocess), lookup_video (oEmbed), fetch_captions (youtube-transcript-api)
-  guard.py       73   budget/pace/block; state in library/.guard.json; allow(paced) raises Stop
+  youtube_client.py    137   all network: list_channel (yt-dlp subprocess), lookup_video (oEmbed), fetch_captions (youtube-transcript-api)
+  request_guard.py       73   budget/pace/block; state in knowledge-library/youtube/.guard.json; allow(paced) raises Stop
   browser.py         Track B: parse bookmarklet captures (*.transcript.json); save_transcript.js is the bookmarklet
   transcript.py      Video/Segment dataclasses and the transcript file format (name, frontmatter, [mm:ss] paragraphs)
-  library.py         Collection (all disk I/O), INDEX.md, missing.log, status records (record_failure, gave_up)
-tests/test_ytspec.py  19 tests, no network (fetch_captions is monkeypatched)
+  knowledge_library.py         Collection (all disk I/O), INDEX.md, missing.log, status records (record_failure, gave_up)
+tests/test_youtube_ingestion.py  24 tests, no network (fetch_captions is monkeypatched)
 Dockerfile, compose.yaml
-templates/channel-skill.md    template for the channel skills
+templates/expert.md + SKILL.md    templates for a YouTube expert
 ```
 
-Dependency direction: `__main__` → `youtube` → `guard` → `library` → `transcript`. Nothing imports `__main__`.
+Dependency direction: `__main__` → `youtube_client` → `request_guard` → `knowledge_library` → `transcript`. Nothing imports `__main__`.
 
 On disk:
 
 ```
-library/.guard.json               {"day", "used", "last_paced", "blocked_until", "reason", ...}
-library/<slug>/channel_url        channel collections only
-library/<slug>/channel_name
-library/<slug>/videos.json        list of Video dicts
-library/<slug>/status.json        {video_id: {"status", "attempts", "error"}}
-library/<slug>/missing.log        id \t status \t title   (read by the skills)
-library/<slug>/transcripts/*.md   <YYYY-MM-DD>-<title-slug>-<video_id>.md, plus INDEX.md
+knowledge-library/youtube/.guard.json               {"day", "used", "last_paced", "blocked_until", "reason", ...}
+knowledge-library/youtube/<slug>/channel_url        channel collections only
+knowledge-library/youtube/<slug>/channel_name
+knowledge-library/youtube/<slug>/videos.json        list of Video dicts
+knowledge-library/youtube/<slug>/status.json        {video_id: {"status", "attempts", "error"}}
+knowledge-library/youtube/<slug>/missing.log        id \t status \t title   (read by the skills)
+knowledge-library/youtube/<slug>/transcripts/*.md   <YYYY-MM-DD>-<title-slug>-<video_id>.md, plus INDEX.md
 ```
 
 ## Key signatures
 
 ```python
-# youtube.py
+# youtube_client.py
 class NoTranscript(Exception): status: str; error: str
 def list_channel(channel_url: str) -> list[Video]        # on a 429, records the block but still returns partial results
 def lookup_video(url: str) -> Video                      # raises UserError for user-facing errors
 def fetch_captions(video_id: str) -> tuple[str, list[Segment]]   # raises NoTranscript or guard.Stop
 
-# guard.py
+# request_guard.py
 class Stop(Exception)
 def allow(paced: bool = False) -> None                    # call before every request: raises Stop or counts the request (and sleeps if paced)
 def block(reason, target, error, retry_after=None) -> Stop   # persists the block, returns the exception to raise
@@ -92,8 +92,8 @@ def stop_reason() -> str | None
 @dataclass Segment(start, text, duration)
 def render(video, captions, segments) -> str;  file_name(published, title, id);  read(path);  join(frontmatter, body)
 
-# library.py
-ROOT = $YT_LIBRARY or <repo>/library
+# knowledge_library.py
+ROOT = $YT_LIBRARY or <repo>/knowledge-library/youtube
 def record_failure(statuses, video_id, status, error);  gave_up(status: dict | None) -> bool
 def find_channel(video) -> Collection | None
 class Collection(slug):
@@ -128,3 +128,10 @@ The skills depend on these:
 - `youtube.py` raises `UserError` instead of `SystemExit`; `main()` prints it and exits 1.
 - `find_channel` scanning every collection is fine at ~10 collections.
 - `list_channel` records a 429 without raising so the partial listing is saved; commented at both ends.
+
+## Decisions (2026-11-08, "my-ai-brain" layout)
+
+- `ytspec` → `pipelines/video-pipeline/youtube_ingestion`; `youtube.py` → `youtube_client.py`,
+  `guard.py` → `request_guard.py`, `library.py` → `knowledge_library.py`. Behaviour unchanged.
+- The library moved from `library/` to `knowledge-library/youtube/` (guard state and lock with it).
+- Skills became thin: `experts/<name>/expert.md` holds the content, `.claude/skills/<name>/SKILL.md` points to it.

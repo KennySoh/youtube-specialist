@@ -1,0 +1,4 @@
+*
+!requirements.txt
+!youtube_ingestion/
+youtube_ingestion/__pycache__/

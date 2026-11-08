@@ -1,4 +1,4 @@
-"""The ./yt commands. The only module that uses both youtube.py (requests) and library.py (disk)."""
+"""The ./yt commands. The only module that uses both youtube_client.py (requests) and knowledge_library.py (disk)."""
 from __future__ import annotations
 
 import argparse
@@ -13,13 +13,13 @@ from pathlib import Path
 
 from slugify import slugify
 
-from . import browser, guard, library, youtube
-from .library import Collection, find_channel, gave_up, record_failure
+from . import browser, knowledge_library, request_guard, youtube_client
+from .knowledge_library import Collection, find_channel, gave_up, record_failure
 from .transcript import Video
 
 LIST_EVERY_HOURS = 24      # a channel is listed at most once a day
 MAX_FAILED_IN_A_ROW = 3    # unexplained failures in a row end the run
-SKILL_HINT = 'Next: ask Claude to "create the {} skill" from templates/channel-skill.md'
+SKILL_HINT = 'Next: ask Claude to "create the {0} expert from templates/" (experts/{0}/expert.md + .claude/skills/{0}/SKILL.md)'
 
 
 def to_fetch(c: Collection, first: Video | None = None, only: bool = False) -> list[Video]:
@@ -49,14 +49,14 @@ def fetch(queue: list[tuple[Collection, Video]]) -> None:
     failed_in_a_row = 0
     for c, video in queue:
         try:
-            captions, segments = youtube.fetch_captions(video.id)
-        except youtube.NoTranscript as e:
+            captions, segments = youtube_client.fetch_captions(video.id)
+        except youtube_client.NoTranscript as e:
             record_failure(statuses[c.slug], video.id, e.status, e.error)
             c.save_statuses(statuses[c.slug])
             print(f"{e.status:12s} {c.slug}/{video.id}  {e.error}", flush=True)
             failed_in_a_row = failed_in_a_row + 1 if e.status == "failed" else 0
             if failed_in_a_row >= MAX_FAILED_IN_A_ROW:
-                raise guard.Stop(f"{MAX_FAILED_IN_A_ROW} failures in a row; stopping before YouTube gets annoyed")
+                raise request_guard.Stop(f"{MAX_FAILED_IN_A_ROW} failures in a row; stopping before YouTube gets annoyed")
             continue
         c.write_transcript(video, captions, segments)
         if statuses[c.slug].pop(video.id, None):
@@ -77,7 +77,7 @@ def list_if_due(c: Collection) -> None:
     if c.listed_within(LIST_EVERY_HOURS):
         print(f"{c.slug}: video list is under {LIST_EVERY_HOURS}h old; not listing again")
         return
-    listed = youtube.list_channel(c.channel_url)  # on a 429: partial list, saved below, then Stop
+    listed = youtube_client.list_channel(c.channel_url)  # on a 429: partial list, saved below, then Stop
     for v in listed:
         v.channel = v.channel or c.channel_name
     old = c.videos()
@@ -111,8 +111,8 @@ def update_many(collections: list[Collection], first: Video | None = None, only:
 
 
 def add(args) -> None:
-    if youtube.VIDEO_URL.search(args.url):
-        video = youtube.lookup_video(args.url)
+    if youtube_client.VIDEO_URL.search(args.url):
+        video = youtube_client.lookup_video(args.url)
         if c := find_channel(video):
             print(f'"{video.title}" is from {c.channel_name}, which you already have ({c.slug}).')
             update(c, first=video)
@@ -133,7 +133,7 @@ def grab(args) -> None:
     slug = slugify(args.topic)
     if Collection(slug).channel_url:
         raise SystemExit(f"{slug} is a channel collection; use ./yt add for channels.")
-    video = youtube.lookup_video(args.url)
+    video = youtube_client.lookup_video(args.url)
     c = Collection.create(slug)
     print(f'→ "{video.title}" ({video.channel}) into {c.slug}')
     update(c, first=video, only=True)
@@ -150,9 +150,9 @@ def update_command(args) -> None:
 
 
 def list_command(_args) -> None:
-    s = guard.state()
-    print(f"today: {guard.used_today(s)}/{guard.DAILY_LIMIT} requests")
-    print(guard.stop_reason() or "ok to fetch")
+    s = request_guard.state()
+    print(f"today: {request_guard.used_today(s)}/{request_guard.DAILY_LIMIT} requests")
+    print(request_guard.stop_reason() or "ok to fetch")
     if s.get("reason"):
         print(f"  last block: {s['reason']} on {s['target']} at {s['at']}: {s['error']}")
     for c in Collection.all():
@@ -188,14 +188,14 @@ def todo_command(args) -> None:
 
 
 def import_command(args) -> None:
-    """Saved *.transcript.json files → transcripts, then into library/_imported/."""
+    """Saved *.transcript.json files → transcripts, then into knowledge-library/youtube/_imported/."""
     folder = Path(args.dir).expanduser()
     files = sorted(folder.glob("*.transcript.json"))
     if not files:
         print(f"No *.transcript.json in {folder}")
         return
     owners = {v.id: (c, v) for c in Collection.all() for v in c.videos()}
-    done_dir = library.ROOT / "_imported"
+    done_dir = knowledge_library.ROOT / "_imported"
     touched: dict[str, Collection] = {}
     for path in files:
         try:
@@ -232,8 +232,8 @@ def bookmarklet_command(_args) -> None:
 
 def lock():
     """Only one run may talk to YouTube at a time, across terminals and cron."""
-    library.ROOT.mkdir(exist_ok=True)
-    f = open(library.ROOT / ".lock", "w")
+    knowledge_library.ROOT.mkdir(exist_ok=True)
+    f = open(knowledge_library.ROOT / ".lock", "w")
     try:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -271,9 +271,9 @@ def main() -> None:
     held = lock() if args.command not in ("list", "todo", "bookmarklet") else None  # noqa: F841  the lock lasts as long as the process
     try:
         args.run(args)
-    except youtube.UserError as err:
+    except youtube_client.UserError as err:
         sys.exit(str(err))
-    except guard.Stop as stop:
+    except request_guard.Stop as stop:
         print(f"⏸ {stop}. Progress is saved; run ./yt update again later.")
     except KeyboardInterrupt:
         sys.exit(130)

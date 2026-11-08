@@ -1,13 +1,12 @@
-#!/usr/bin/env python3
-"""Convert books listed in knowledge/books.txt into knowledge/<slug>/chapters/*.md.
+"""Convert books listed in knowledge-library/books/books.txt into knowledge-library/books/<slug>/chapters/*.md.
 
 Run via Docker:  ./books [slug ...] [--force]
 
-books.txt paths are relative to BOOKS_DIR (the PDF folder, outside the repo; mounted at /books).
+books.txt paths are relative to BOOKS_DIR (raw/books by default; mounted read-only at /books).
 
 Each chapter file has a `<!-- p.N -->` marker before every page (N = PDF page).
 Chapters come from the PDF outline, else from `#` headings, else 25-page parts.
-Scanned PDFs are OCR'd first (cached as knowledge/<slug>/ocr.pdf).
+Scanned PDFs are OCR'd first (cached as <slug>/ocr.pdf).
 """
 
 import argparse
@@ -25,8 +24,8 @@ import pymupdf4llm
 pymupdf.TOOLS.mupdf_display_errors(False)  # malformed PDFs spam harmless warnings
 # ignore_graphics below: otherwise text in shaded boxes (tips, sidebars) is dropped
 
-ROOT = Path(__file__).resolve().parent.parent
-KNOWLEDGE = ROOT / "knowledge"
+ROOT = Path(__file__).resolve().parents[3]
+KNOWLEDGE = ROOT / "knowledge-library" / "books"
 BOOKS = Path(os.environ.get("BOOKS_DIR", "/books"))
 MAX_PAGES = 60   # outline sections longer than this are split into sub-sections
 CHUNK = 25       # pages per part when there is no outline or headings
@@ -152,7 +151,7 @@ def main() -> int:
     books = read_books()
     unknown = [s for s in args.slugs if s not in books]
     if unknown:
-        print(f"✗ not in knowledge/books.txt: {', '.join(unknown)}", file=sys.stderr)
+        print(f"✗ not in knowledge-library/books/books.txt: {', '.join(unknown)}", file=sys.stderr)
         return 1
 
     failed = 0
@@ -168,6 +167,3 @@ def main() -> int:
             failed += 1
     return 1 if failed else 0
 
-
-if __name__ == "__main__":
-    sys.exit(main())

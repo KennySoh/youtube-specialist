@@ -5,20 +5,20 @@ Turn books into a knowledge library that Claude Code skills use to discover, des
 ## Pipeline
 
 ```text
-books.txt ──► ./books (pdf2md) ──► knowledge/<book>/chapters/   (script: raw text + page markers)
+books.txt ──► ./books (book_ingestion) ──► knowledge-library/books/<book>/chapters/   (script: raw text + page markers)
                                             │
                        /extract-book <book> ▼
-                                    knowledge/<book>/notes.md      (Claude: deep notes)
+                                    knowledge-library/books/<book>/notes.md      (Claude: deep notes)
                                             │
                                             ▼
-                               role-skills/<role>/SKILL.md         (reads notes, greps chapters)
+                               experts/<role>/expert.md            (reads notes, greps chapters)
 ```
 
 ## Layout
 
 ```text
-knowledge/
-├── books.txt                 # "<slug> <path to pdf, relative to BOOKS_DIR>"
+knowledge-library/books/
+├── books.txt                 # "<slug> <path to pdf, relative to BOOKS_DIR (raw/books)>"
 └── <slug>/
     ├── chapters/NN-title.md  # generated, gitignored (copyrighted text)
     └── notes.md              # written by Claude, committed

@@ -15,11 +15,11 @@ __pycache__/
 *.swp
 .DS_Store
 
-# Your own channels, skills and notes stay local — the repo ships only the tool.
-library/
+# Your own sources, knowledge, experts and skills stay local — the repo ships only the tools.
+raw/
+knowledge-library/
+experts/
 .claude/skills/
-role-skills/
-knowledge/
 docs/plans/
 advise*.md
 plan.md

@@ -5,6 +5,8 @@
 Turn YouTube videos and books into a personal, searchable knowledge library. Create AI experts that
 answer from your chosen sources, with citations.
 
+![my-ai-expert](docs/diagrams/my-ai-expert.png)
+
 ### How it works
 
 1. **Collect knowledge**: import YouTube transcripts and books.
@@ -12,31 +14,7 @@ answer from your chosen sources, with citations.
 3. **Create AI experts**: source-grounded specialists in Claude Code today, other AI models later.
 
 **Architecture:** Acquire → Raw → Process → Store → Knowledge Library → AI Experts
-
-## Project structure
-
-```text
-MyAiExperts/
-├── knowledge-acquisition/  # Acquire, process and publish knowledge
-│   ├── pipelines/
-│   │   ├── video-pipeline/youtube_ingestion/
-│   │   └── book-pipeline/book_ingestion/
-│   ├── raw/                # Original PDFs and YouTube captions
-│   └── state/              # Video lists, status, rate-limit guard, books.txt
-│
-├── knowledge-library/      # Processed, searchable Markdown (what experts read)
-│   ├── youtube/
-│   └── books/
-│
-├── experts/                # Expert definitions and source rules
-├── .claude/skills/         # Claude Code integration
-├── scripts/                # CLI commands and tests: yt.sh, books.sh, test.sh
-├── docs/
-└── compose.yaml
-```
-
-Each pipeline uses simple `acquire.py`, `process.py` and `store.py` modules where needed. YouTube is
-acquired automatically; books are added by hand.
+([details and folder layout](docs/software-architecture.md))
 
 ## Quick start
 

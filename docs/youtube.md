@@ -54,7 +54,7 @@ pipelines/video-pipeline/youtube_ingestion/
   store.py         Collection (all disk I/O), INDEX.md, missing.log, status records (record_failure, gave_up)
 tests/test_youtube_ingestion.py  24 tests, no network (fetch_captions is monkeypatched)
 Dockerfile, compose.yaml
-templates/expert.md + SKILL.md    templates for a YouTube expert
+experts/_template/expert.md + SKILL.md    templates for a YouTube expert
 ```
 
 Dependency direction: `__main__` → `acquire` → `request_guard` → `store` → `process`. Nothing imports `__main__`.

@@ -6,8 +6,8 @@ sources:
 ---
 <!--
   Template for a YouTube expert. Replace every {{placeholder}} and save as experts/<slug>/expert.md,
-  then copy templates/SKILL.md to .claude/skills/<slug>/SKILL.md. Easiest: ask Claude
-  "create the <slug> expert from templates/" and it fills in Coverage and Style from the transcripts.
+  then copy experts/_template/SKILL.md to .claude/skills/<slug>/SKILL.md. Easiest: ask Claude
+  "create the <slug> expert from experts/_template/" and it fills in Coverage and Style from the transcripts.
   expert.md is tool-agnostic (Claude today, other assistants later); SKILL.md only points to it.
 -->
 

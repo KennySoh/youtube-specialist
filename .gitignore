@@ -18,7 +18,8 @@ __pycache__/
 # Your own sources, knowledge, experts and skills stay local — the repo ships only the tools.
 raw/
 knowledge-library/
-experts/
+experts/*
+!experts/_template/
 .claude/skills/
 docs/plans/
 advise*.md

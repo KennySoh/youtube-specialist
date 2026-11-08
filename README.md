@@ -19,7 +19,7 @@ Your knowledge. Your experts. Your personal AI.
 | `scripts/` | Commands | `scripts/yt`, `scripts/books`; `./yt` and `./books` at the root are symlinks to them |
 
 `raw/`, `knowledge-library/`, `experts/` and `.claude/skills/` are git-ignored: the repo ships only
-the tools. `templates/` has a starting `expert.md` and `SKILL.md`.
+the tools, plus `experts/_template/` (a starting `expert.md` and `SKILL.md`).
 
 Every source follows one convention, so any expert can cite it: one Markdown file per source with
 location markers, an index or notes file, and experts that grep the files and cite the marker.
@@ -54,7 +54,7 @@ Or with Docker: `docker compose build`, then `docker compose run --rm yt <comman
 ```
 
 `./yt update` with no slug takes the channels in turn, so one big channel can't use up the day's budget.
-Then, in Claude Code: *"create the some-channel expert from templates/"*, and ask `/some-channel …`.
+Then, in Claude Code: *"create the some-channel expert from experts/_template/"*, and ask `/some-channel …`.
 
 ## Daily runs
 

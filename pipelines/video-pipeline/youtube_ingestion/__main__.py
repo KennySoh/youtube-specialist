@@ -18,7 +18,7 @@ from .process import Video
 
 LIST_EVERY_HOURS = 24      # a channel is listed at most once a day
 MAX_FAILED_IN_A_ROW = 3    # unexplained failures in a row end the run
-SKILL_HINT = 'Next: ask Claude to "create the {0} expert from templates/" (experts/{0}/expert.md + .claude/skills/{0}/SKILL.md)'
+SKILL_HINT = 'Next: ask Claude to "create the {0} expert from experts/_template/" (experts/{0}/expert.md + .claude/skills/{0}/SKILL.md)'
 
 
 def to_fetch(c: Collection, first: Video | None = None, only: bool = False) -> list[Video]:

@@ -6,7 +6,7 @@
 - pace:   a random YT_GAP_MIN–YT_GAP_MAX seconds between caption requests, across runs too
 - block:  the first 429 or bot check stops every request for 24 h (longer if YouTube sends Retry-After)
 
-State lives in knowledge-library/youtube/.guard.json, shared by every run (cron, terminals).
+State lives in knowledge-acquisition/state/youtube/.guard.json, shared by every run (cron, terminals).
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def now() -> dt.datetime:
 
 
 def state_file():
-    return store.ROOT / ".guard.json"
+    return store.STATE / ".guard.json"
 
 
 def state() -> dict:

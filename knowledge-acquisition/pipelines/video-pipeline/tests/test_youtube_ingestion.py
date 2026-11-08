@@ -13,9 +13,10 @@ from youtube_ingestion.process import Segment, Video
 
 @pytest.fixture(autouse=True)
 def tmp_library(tmp_path, monkeypatch):
-    """Every test gets an empty library and a fresh guard, with no waiting between requests."""
+    """Every test gets an empty library, raw and state, and a fresh guard, with no waiting between requests."""
     monkeypatch.setattr(store, "ROOT", tmp_path / "library")
     monkeypatch.setattr(store, "RAW", tmp_path / "raw")
+    monkeypatch.setattr(store, "STATE", tmp_path / "state")
     monkeypatch.setattr(request_guard, "GAP_SECONDS", (0, 0))
     return tmp_path
 
@@ -97,6 +98,24 @@ def test_fetch_records_status_and_missing_log(monkeypatch):
     assert "[has captions](0000-00-00-has-captions-aaaaaaaaaaa.md)" in (c.transcripts / "INDEX.md").read_text()
 
 
+def test_library_gets_only_what_experts_read(monkeypatch):
+    """Acquisition's bookkeeping stays in state/ and raw/; the library holds only published files."""
+    c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
+    c.save_videos([Video(id="aaaaaaaaaaa", title="has captions"), Video(id="bbbbbbbbbbb", title="none")])
+    monkeypatch.setattr(acquire, "fetch_captions", fake_captions({
+        "aaaaaaaaaaa": None, "bbbbbbbbbbb": acquire.NoTranscript("failed", "x")}))
+    cli.update(c, only=True)
+    held = cli.lock()
+    held.close()
+    request_guard.block("429", "x", "e")
+    published = sorted(str(p.relative_to(store.ROOT)) for p in store.ROOT.rglob("*"))
+    assert published == ["ch", "ch/missing.log", "ch/transcripts", "ch/transcripts/0000-00-00-has-captions-aaaaaaaaaaa.md",
+                         "ch/transcripts/INDEX.md"]
+    assert {p.name for p in store.STATE.iterdir()} == {".guard.json", ".lock", "ch"}
+    assert {p.name for p in (store.STATE / "ch").iterdir()} == {"channel_url", "channel_name", "videos.json", "status.json"}
+    assert [p.name for p in (store.RAW / "ch").iterdir()] == ["aaaaaaaaaaa.json"]
+
+
 def test_grab_fetches_only_that_video(monkeypatch):
     c = Collection.create("topic")
     c.save_videos([Video(id="otherVideo1", title="pending")])
@@ -128,7 +147,7 @@ def test_listing_learns_a_date():
 def test_videos_json_keeps_its_keys():
     c = Collection.create("ch", "https://www.youtube.com/@ch/videos", "Ch")
     c.save_videos([VIDEO])
-    assert set(json.loads((c.dir / "videos.json").read_text())[0]) == {
+    assert set(json.loads((c.state / "videos.json").read_text())[0]) == {
         "id", "title", "url", "channel", "channel_url", "upload_date", "duration", "view_count"}
     assert c.channel_url == "https://www.youtube.com/@ch/videos"
 

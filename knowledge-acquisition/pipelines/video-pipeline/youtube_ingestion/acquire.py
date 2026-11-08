@@ -2,7 +2,7 @@
 
 1. From YouTube: every request we make, and each one asks the request guard first.
 
-- list_channel:   a channel's videos (yt-dlp; it never fetches captions, see README "Lessons learned")
+- list_channel:   a channel's videos (yt-dlp; it never fetches captions)
 - lookup_video:   a video URL → title and channel (oEmbed, a small JSON lookup)
 - fetch_captions: a video's English captions (youtube-transcript-api; never a machine translation)
 

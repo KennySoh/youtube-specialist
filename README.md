@@ -1,4 +1,4 @@
-# My AI Brain
+# MyAiExperts
 
 **Your knowledge. Your experts. Your personal AI.**
 
@@ -16,21 +16,17 @@ answer from your chosen sources, with citations.
 ## Project structure
 
 ```text
-my-ai-brain/
-├── raw/                    # Original PDFs and YouTube captions
-│   ├── books/
-│   └── youtube/
+MyAiExperts/
+├── knowledge-acquisition/  # Acquire, process and publish knowledge
+│   ├── pipelines/
+│   │   ├── video-pipeline/youtube_ingestion/
+│   │   └── book-pipeline/book_ingestion/
+│   ├── raw/                # Original PDFs and YouTube captions
+│   └── state/              # Video lists, status, rate-limit guard, books.txt
 │
-├── pipelines/              # Acquire, process and store knowledge
-│   ├── video-pipeline/
-│   │   └── youtube_ingestion/
-│   └── book-pipeline/
-│       └── book_ingestion/
-│
-├── knowledge-library/      # Processed, searchable Markdown
+├── knowledge-library/      # Processed, searchable Markdown (what experts read)
 │   ├── youtube/
-│   ├── books/
-│   └── notes/
+│   └── books/
 │
 ├── experts/                # Expert definitions and source rules
 ├── .claude/skills/         # Claude Code integration
@@ -65,13 +61,13 @@ cp .env.example .env       # optional configuration
 Transcripts are saved in `knowledge-library/youtube/` with `[mm:ss]` timestamps.
 
 YouTube requests are rate-limited (about 50 a day). A 429 triggers a 24-hour block. Captions already
-saved in `raw/` are reused instead of fetched again.
+saved in `knowledge-acquisition/raw/` are reused instead of fetched again.
 
 For videos the tool can't get, use `./scripts/yt.sh bookmarklet` and `./scripts/yt.sh import`.
 
 ### Books
 
-Place PDFs in `raw/books/` and register them in `knowledge-library/books/books.txt`.
+Place PDFs in `knowledge-acquisition/raw/books/` and register them in `knowledge-acquisition/state/books/books.txt`.
 
 ```bash
 ./scripts/books.sh                    # convert all registered books
@@ -102,7 +98,7 @@ Create a new expert from `experts/_template/`.
 Run YouTube updates daily:
 
 ```cron
-0 3 * * * cd /path/to/my-ai-brain && ./scripts/yt.sh update >> fetch.log 2>&1
+0 3 * * * cd /path/to/MyAiExperts && ./scripts/yt.sh update >> fetch.log 2>&1
 ```
 
 Run the offline tests:
@@ -116,9 +112,10 @@ them up separately.
 
 ## Documentation
 
-- [Software architecture](docs/software-architecture.md): responsibilities, domain model, data flows, design decisions.
+- [Software architecture](docs/software-architecture.md): domains and ownership, system architecture, where things live, how the library can evolve.
 - [YouTube pipeline](docs/youtube.md): commands, rate limits, file formats, bookmarklet, troubleshooting.
 - [Book pipeline](docs/books.md): PDF conversion, notes format, citation rules.
+- [Diagrams](docs/diagrams/): Mermaid (`.mmd`) domain flow, architecture, video pipeline and book pipeline.
 
 **Design principle:** keep source pipelines independent, preserve original material, and let AI
 experts use the knowledge without depending on how it was acquired.

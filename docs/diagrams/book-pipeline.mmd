@@ -1,0 +1,32 @@
+flowchart TB
+    U["You<br/>drop some-book.pdf<br/>then ./scripts/books.sh some-book"]
+
+    subgraph BP["Book Pipeline"]
+        subgraph A["Acquire · by hand"]
+            R[("Raw Storage<br/>knowledge-acquisition/raw/books/")]
+            T["Register in state/books/books.txt<br/>some-book  some-book.pdf"]
+        end
+
+        subgraph P["Process · process.py"]
+            P1["OCR if scanned<br/>cached in state/books/"]
+            P2["PDF → Markdown per page"]
+            P3["Find chapters<br/>outline › headings › 25-page parts"]
+            P1 --> P2 --> P3
+        end
+
+        subgraph S["Store · store.py"]
+            S1["chapters/NN-title.md<br/>&lt;!-- p.N --&gt; before every page"]
+        end
+    end
+
+    K[("Knowledge Library<br/>knowledge-library/books/some-book/")]
+    X["/extract-book some-book<br/>chapters → notes.md"]
+
+    U --> R
+    U --> T
+    R --> P1
+    T --> P1
+    P3 --> S1 --> K
+    K -. "in Claude Code" .-> X
+
+    style A stroke-dasharray: 5 5

@@ -1,0 +1,30 @@
+flowchart TB
+    YT["YouTube<br/>Channels · Videos · Captions"]
+    BM["Your Browser<br/>Save transcript bookmarklet"]
+
+    subgraph VP["Video Pipeline"]
+        subgraph A["Acquire · acquire.py"]
+            G["Request Guard<br/>~50 a day · paced · 24 h block on a 429"]
+            F["List channel videos (yt-dlp)<br/>Fetch English captions"]
+            G --> F
+        end
+
+        subgraph P["Process · process.py"]
+            PR["Captions → Markdown<br/>[mm:ss] paragraph every ~30 s"]
+        end
+
+        subgraph S["Store · store.py"]
+            ST["Publish transcripts<br/>INDEX.md · missing.log"]
+        end
+    end
+
+    R[("Raw Storage<br/>knowledge-acquisition/raw/youtube/")]
+    SS[("Acquisition State<br/>knowledge-acquisition/state/youtube/<br/>guard · videos.json · status.json")]
+    K[("Knowledge Library<br/>knowledge-library/youtube/&lt;slug&gt;/")]
+
+    YT --> G
+    F -- "saved first" --> R
+    BM -. "yt.sh import" .-> R
+    R -- "reused, never fetched twice" --> PR
+    PR --> ST --> K
+    G <-.-> SS

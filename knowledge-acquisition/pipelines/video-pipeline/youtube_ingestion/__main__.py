@@ -233,7 +233,7 @@ def import_command(args) -> None:
 
 def reprocess_command(args) -> None:
     """Rebuild transcripts from raw/ only (fetched captions, then bookmarklet captures). No network."""
-    if args.slug and not Collection(args.slug).dir.exists():
+    if args.slug and not Collection(args.slug).state.exists():
         raise acquire.UserError(f"Unknown collection '{args.slug}' — see ./scripts/yt.sh list")
     for c in [Collection(args.slug)] if args.slug else Collection.all():
         rebuilt = 0
@@ -263,8 +263,8 @@ def bookmarklet_command(_args) -> None:
 
 def lock():
     """Only one run may talk to YouTube at a time, across terminals and cron."""
-    store.ROOT.mkdir(exist_ok=True)
-    f = open(store.ROOT / ".lock", "w")
+    store.STATE.mkdir(parents=True, exist_ok=True)
+    f = open(store.STATE / ".lock", "w")
     try:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:

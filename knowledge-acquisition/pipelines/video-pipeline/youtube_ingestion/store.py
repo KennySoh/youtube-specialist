@@ -1,12 +1,16 @@
 """STORE: everything on disk. No network.
 
-raw/youtube/<slug>/<video_id>.json          captions as fetched (or <video_id>.browser.json, a bookmarklet capture)
-
-knowledge-library/youtube/<slug>/           one collection
+Knowledge Acquisition's own files (never read by the experts):
+knowledge-acquisition/raw/youtube/<slug>/<video_id>.json   captions as fetched (or <video_id>.browser.json, a bookmarklet capture)
+knowledge-acquisition/state/youtube/                       .guard.json, .lock
+knowledge-acquisition/state/youtube/<slug>/                one collection's bookkeeping
   channel_url, channel_name   channel collections only (no channel_url = topic collection)
   videos.json             every video we know of
   status.json             why a video has no transcript: no_captions, unavailable or failed
-  missing.log             the same, one line per video, for the skills
+
+What it publishes to the Knowledge Library (what the experts read):
+knowledge-library/youtube/<slug>/
+  missing.log             videos without a transcript and why, one line each
   transcripts/*.md        one transcript per video, plus INDEX.md
 """
 from __future__ import annotations
@@ -24,9 +28,13 @@ import yaml
 from . import process
 from .process import Segment, Video
 
-# YT_LIBRARY overrides it (Docker, tests); otherwise <repo>/knowledge-library/youtube, wherever ./scripts/yt.sh is run from.
-ROOT = Path(os.environ.get("YT_LIBRARY") or Path(__file__).resolve().parents[3] / "knowledge-library" / "youtube")
-RAW = Path(os.environ.get("YT_RAW") or Path(__file__).resolve().parents[3] / "raw" / "youtube")
+# YT_LIBRARY, YT_RAW and YT_STATE override these (Docker, tests); otherwise they're found from this file.
+# knowledge-acquisition/, wherever this file sits under it (in the YouTube image the env vars are used instead)
+_ACQUISITION = next((p for p in Path(__file__).resolve().parents if p.name == "knowledge-acquisition"),
+                    Path(__file__).resolve().parent)
+ROOT = Path(os.environ.get("YT_LIBRARY") or _ACQUISITION.parent / "knowledge-library" / "youtube")  # published
+RAW = Path(os.environ.get("YT_RAW") or _ACQUISITION / "raw" / "youtube")        # originals
+STATE = Path(os.environ.get("YT_STATE") or _ACQUISITION / "state" / "youtube")  # bookkeeping
 MAX_ATTEMPTS = 3        # a failed video is tried again on the next runs, this many times in all
 
 
@@ -54,31 +62,33 @@ def load_json(path: Path, default):
 class Collection:
     def __init__(self, slug: str):
         self.slug = slug
-        self.dir = ROOT / slug
+        self.dir = ROOT / slug               # published: transcripts/, missing.log
         self.transcripts = self.dir / "transcripts"
         self.raw = RAW / slug
+        self.state = STATE / slug            # bookkeeping: channel_url, channel_name, videos.json, status.json
 
     @staticmethod
     def all() -> list[Collection]:
-        return [Collection(p.parent.name) for p in sorted(ROOT.glob("*/videos.json"))]
+        return [Collection(p.parent.name) for p in sorted(STATE.glob("*/videos.json"))]
 
     @staticmethod
     def channels() -> list[Collection]:
-        return [Collection(p.parent.name) for p in sorted(ROOT.glob("*/channel_url"))]
+        return [Collection(p.parent.name) for p in sorted(STATE.glob("*/channel_url"))]
 
     @staticmethod
     def create(slug: str, channel_url: str | None = None, channel_name: str | None = None) -> Collection:
         c = Collection(slug)
         c.transcripts.mkdir(parents=True, exist_ok=True)
+        c.state.mkdir(parents=True, exist_ok=True)
         if channel_url:
-            (c.dir / "channel_url").write_text(channel_url.removesuffix("/").removesuffix("/videos") + "/videos\n")
-            (c.dir / "channel_name").write_text(f"{channel_name}\n")
-        if not (c.dir / "videos.json").exists():
+            (c.state / "channel_url").write_text(channel_url.removesuffix("/").removesuffix("/videos") + "/videos\n")
+            (c.state / "channel_name").write_text(f"{channel_name}\n")
+        if not (c.state / "videos.json").exists():
             c.save_videos([])
         return c
 
     def _read(self, name: str) -> str | None:
-        path = self.dir / name
+        path = self.state / name
         return path.read_text().strip() if path.exists() else None
 
     @property
@@ -90,20 +100,20 @@ class Collection:
         return self._read("channel_name") or self.slug
 
     def videos(self) -> list[Video]:
-        return [Video.from_dict(d) for d in load_json(self.dir / "videos.json", [])]
+        return [Video.from_dict(d) for d in load_json(self.state / "videos.json", [])]
 
     def save_videos(self, videos: list[Video]) -> None:
-        save_json(self.dir / "videos.json", [dataclasses.asdict(v) for v in videos])
+        save_json(self.state / "videos.json", [dataclasses.asdict(v) for v in videos])
 
     def listed_within(self, hours: float) -> bool:
-        path = self.dir / "videos.json"
+        path = self.state / "videos.json"
         return path.exists() and time.time() - path.stat().st_mtime < hours * 3600
 
     def statuses(self) -> dict[str, dict]:
-        return load_json(self.dir / "status.json", {})
+        return load_json(self.state / "status.json", {})
 
     def save_statuses(self, statuses: dict[str, dict]) -> None:
-        save_json(self.dir / "status.json", statuses)
+        save_json(self.state / "status.json", statuses)
 
     def transcript_files(self) -> dict[str, Path]:
         """video id → transcript file."""

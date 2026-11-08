@@ -1,16 +1,25 @@
 # Book pipeline
 
-Code: `pipelines/book-pipeline/book_ingestion/`. Runs in its own Docker image (PyMuPDF + Tesseract)
-through `./scripts/books.sh`.
+Code: `knowledge-acquisition/pipelines/book-pipeline/book_ingestion/`. Runs in its own Docker image (`book-ingestion`:
+pymupdf4llm, ocrmypdf with Tesseract) through `./scripts/books.sh`, which mounts the repo and `BOOKS_DIR`
+(read-only). Diagram: [book pipeline](diagrams/book-pipeline.mmd).
+
+| Module | Job |
+|---|---|
+| `__main__.py` | The command: converts each `books.txt` entry, keeps going past a broken PDF, exits 1 if any failed |
+| `process.py` | PDF → Markdown per page and chapter ranges; OCR for scans. Writes only the `ocr.pdf` cache |
+| `store.py` | `books.txt` parsing, the OCR cache location and writing `chapters/` |
+
+Books have no acquire step: you add the PDFs yourself.
 
 ```
-raw/books/*.pdf ──./scripts/books.sh──► knowledge-library/books/<slug>/chapters/ ──/extract-book──► notes.md ──► role experts
+knowledge-acquisition/raw/books/*.pdf ──./scripts/books.sh──► knowledge-library/books/<slug>/chapters/ ──/extract-book──► notes.md ──► role experts
 ```
 
 ## Adding a book
 
-1. Put the PDF under `raw/books/` (or point `BOOKS_DIR` in `.env` at another folder).
-2. Add a line to `knowledge-library/books/books.txt`: `<slug> <path relative to raw/books>`.
+1. Put the PDF under `knowledge-acquisition/raw/books/` (or point `BOOKS_DIR` in `.env` at another folder).
+2. Add a line to `knowledge-acquisition/state/books/books.txt`: `<slug> <path relative to raw/books>`.
 3. `./scripts/books.sh <slug>` converts it (`./scripts/books.sh` alone converts every book not converted yet; `--force` redoes it).
 4. In Claude Code: `/extract-book <slug>` writes `notes.md`.
 
@@ -18,12 +27,14 @@ Open book work (books still to extract, role refinements) is tracked in `knowled
 
 ## Conversion
 
-- Text comes from the PDF; a scanned PDF (little text per page) is OCR'd first, cached as `<slug>/ocr.pdf`.
-- Chapters come from the PDF outline, else from bold `#` headings, else 25-page parts. Outline parts
-  longer than 60 pages are split into their chapters.
+- Text comes from the PDF; a scanned PDF (under 100 characters per page on a sample of pages) is OCR'd
+  first, cached as `knowledge-acquisition/state/books/<slug>/ocr.pdf` and reused on the next run.
+- Chapters come from the PDF outline, else from bold `#` headings (at least 3; `##` too if `#` alone leaves
+  sections over 60 pages), else 25-page parts. Outline parts longer than 60 pages are split into their
+  chapters. Pages before the first chapter become *Front matter*.
 - Output: `chapters/NN-title.md`, starting with `<!-- <title> | <pdf name> | PDF pages A-B -->` and with
   `<!-- p.N -->` before every page. **N is the PDF page**, not the number printed in the book.
-- `--force` rewrites `chapters/` only. `notes.md` and `ocr.pdf` are never touched.
+- `--force` rewrites `chapters/` only. `notes.md` and the OCR cache are never touched.
 - `chapters/` is copyrighted text: keep it local (the whole library is git-ignored).
 
 ## notes.md
@@ -78,5 +89,5 @@ done
 ## Tests
 
 `./scripts/test.sh` includes the book store tests: `books.txt` parsing, the chapter format and page
-markers, and that `notes.md` survives a re-conversion. (PDF processing itself is checked by converting
+markers, that `notes.md` survives a re-conversion, and that `books.txt` and the OCR cache stay out of the library. (PDF processing itself is checked by converting
 a book and comparing the output.)

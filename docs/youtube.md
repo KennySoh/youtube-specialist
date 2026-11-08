@@ -1,6 +1,17 @@
 # YouTube pipeline
 
-Code: `pipelines/video-pipeline/youtube_ingestion/`. Runs in Docker through `./scripts/yt.sh`.
+Code: `knowledge-acquisition/pipelines/video-pipeline/youtube_ingestion/`. Runs in Docker through `./scripts/yt.sh`.
+
+Diagram: [video pipeline](diagrams/video-pipeline.mmd).
+
+| Module | Job |
+|---|---|
+| `__main__.py` | The commands, the run lock, round-robin queue, `finish()` (dates, `INDEX.md`, `missing.log`) |
+| `acquire.py` | Channel listing (yt-dlp), video lookup (oEmbed), captions (youtube-transcript-api), reading bookmarklet files |
+| `request_guard.py` | Budget, pacing and blocks; asked before every request |
+| `process.py` | `Video` and `Segment`; captions → transcript Markdown. No disk, no network |
+| `store.py` | `Collection`: everything on disk, raw snapshots included. No network |
+| `save_transcript.js` | The bookmarklet source |
 
 ## Commands
 
@@ -12,7 +23,7 @@ Code: `pipelines/video-pipeline/youtube_ingestion/`. Runs in Docker through `./s
 ./scripts/yt.sh update [slug]                           # list new videos + fetch missing transcripts (all channels or one)
 ./scripts/yt.sh list                                    # progress per collection and the guard state (no network)
 ./scripts/yt.sh todo [slug] [-n N] [--open N]           # missing videos, the ones that failed 3 times first (no network)
-./scripts/yt.sh reprocess [slug]                        # rebuild transcripts from raw/ only (no network)
+./scripts/yt.sh reprocess [slug]                        # rebuild transcripts from raw captions only (no network)
 ./scripts/yt.sh bookmarklet                             # print the "Save transcript" bookmarklet
 ./scripts/yt.sh import [dir]                            # bookmarklet files → transcripts (default ~/Downloads, no network)
 ```
@@ -20,6 +31,20 @@ Code: `pipelines/video-pipeline/youtube_ingestion/`. Runs in Docker through `./s
 `./scripts/yt.sh update` with no slug takes the channels in turn, so one big channel can't use up the day's budget.
 A channel is listed at most once a day. After `./scripts/yt.sh add`, ask Claude Code to *"create the <slug>
 expert from experts/_template/"*.
+
+`add <video_url>` looks the video up (oEmbed). If you already have its channel (matched by URL or name), it
+updates that collection with this video first; otherwise it creates the channel collection. `grab` refuses a
+slug that is a channel collection.
+
+## How captions are fetched
+
+- **Listing** (`yt-dlp --flat-playlist --sleep-requests 5`) only reads the channel's video list, never captions.
+- **Captions** come from youtube-transcript-api, English only (`en`, `en-US`, `en-GB`), manual preferred to
+  auto-generated, never a machine translation. Captions that come back empty count as `failed`.
+- **Raw first:** fetched captions are saved to `knowledge-acquisition/raw/youtube/<slug>/<id>.json` before the
+  transcript is written. A video with a valid snapshot is never fetched again; `reprocess` rebuilds every transcript from `raw/`
+  (snapshots, then bookmarklet captures).
+- Writes are atomic (temp file + rename). A transcript rebuilt under a new title or date replaces the old file.
 
 ## Rate limits (the guard)
 
@@ -29,24 +54,31 @@ Settings in `.env` (see `.env.example`): `YT_DAILY_LIMIT` (default 50), `YT_GAP_
 - **Budget:** at most `YT_DAILY_LIMIT` admitted operations a day: one per video, channel listing or
   video lookup. A listing is many HTTP requests underneath; yt-dlp paces those itself.
 - **Pace:** a random pause between caption requests, kept across runs.
-- **Block:** the first 429 or bot check stops every request for 24 h (longer if YouTube sends Retry-After).
+- **Block:** the first 429 (or 402, which yt-dlp reports for the same IP limit) or bot check stops every
+  request for 24 h (longer if YouTube sends Retry-After). A listing cut short this way still saves what it found.
 - **Stop:** when the budget is used or a block starts, the run ends cleanly; progress is saved.
 - 3 unexplained failures in a row also end the run.
 
-State is in `knowledge-library/youtube/.guard.json`, shared by every run (cron, terminals). Only one
-run at a time (`.lock`).
+State is in `knowledge-acquisition/state/youtube/.guard.json`, shared by every run (cron, terminals). The day
+boundary is the host's local time (`/etc/localtime` is mounted). Only one run at a time (`.lock`): every
+command except `list`, `todo` and `bookmarklet` takes it.
 
 ## Files
 
+Knowledge Acquisition keeps its own files; it publishes only transcripts and `missing.log` to the library.
+
 ```
-raw/youtube/<slug>/<video_id>.json           captions as fetched (reused instead of fetching again)
-raw/youtube/<slug>/<video_id>.browser.json   a bookmarklet capture after import
-knowledge-library/youtube/.guard.json        guard state
-knowledge-library/youtube/<slug>/
-  channel_url, channel_name                  channel collections only
-  videos.json                                every video we know of
-  status.json                                {video_id: {status, attempts, error}}
-  missing.log                                id <tab> status <tab> title (read by the experts)
+knowledge-acquisition/raw/youtube/<slug>/
+  <video_id>.json                            captions as fetched (reused instead of fetching again)
+  <video_id>.browser.json                    a bookmarklet capture after import
+knowledge-acquisition/state/youtube/
+  .guard.json, .lock                         guard state, run lock
+  <slug>/channel_url, channel_name           channel collections only
+  <slug>/videos.json                         every video we know of
+  <slug>/status.json                         {video_id: {status, attempts, error}}
+
+knowledge-library/youtube/<slug>/            what the experts read
+  missing.log                                id <tab> status <tab> title
   transcripts/INDEX.md                       one row per transcript, newest first
   transcripts/<YYYY-MM-DD>-<title-slug>-<video_id>.md
 ```
@@ -66,7 +98,7 @@ knowledge-library/youtube/<slug>/
 3. On each: open the transcript panel (*Show transcript*, or *In this video › Timeline*), click the bookmark.
    It saves `<id>.transcript.json` to Downloads. It only reads what's on screen and sends nothing.
 4. `./scripts/yt.sh import` writes the transcripts (`transcript_source: browser`), updates `INDEX.md` and
-   `missing.log`, and moves the files to `raw/youtube/<slug>/`.
+   `missing.log`, and moves the files to `knowledge-acquisition/raw/youtube/<slug>/`.
 
 Only videos already in a collection are imported.
 
@@ -74,12 +106,13 @@ Only videos already in a collection are imported.
 
 - **Blocked:** `./scripts/yt.sh list` shows until when. Wait it out; don't delete `.guard.json` or retry by hand.
 - **"Another ./scripts/yt.sh run is already fetching":** a run (maybe cron) is still going; wait for it.
-- **Channel listing breaks:** raise `yt-dlp` and `yt-dlp-ejs` in `pipelines/video-pipeline/requirements.txt`,
+- **Channel listing breaks:** raise `yt-dlp` and `yt-dlp-ejs` in `knowledge-acquisition/pipelines/video-pipeline/requirements.txt`,
   then `./scripts/yt.sh setup`.
 - **No captions:** a video marked `no_captions` or `unavailable` is never asked for again; `failed` is
   retried up to 3 times, then listed first by `./scripts/yt.sh todo` for the bookmarklet.
 
 ## Tests
 
-`./scripts/test.sh`: 39 tests, no network. They cover the formats above, the guard (budget, block,
+`./scripts/test.sh`: 40 tests, no network. They cover the formats above, that only transcripts and
+`missing.log` reach the library, the guard (budget, block,
 restart, day boundary, Retry-After), the lock, raw reuse and the bookmarklet import.

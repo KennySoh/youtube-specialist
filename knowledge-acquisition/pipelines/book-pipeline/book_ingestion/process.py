@@ -42,6 +42,7 @@ def chars_per_page(doc) -> float:
 def ocr(pdf: Path, out: Path) -> Path:
     if not out.exists():
         print("  scanned PDF, running OCR (takes a while)...")
+        out.parent.mkdir(parents=True, exist_ok=True)
         tmp = out.with_suffix(".tmp.pdf")
         subprocess.run(["ocrmypdf", "-q", "--skip-text", str(pdf), str(tmp)], check=True)
         tmp.rename(out)

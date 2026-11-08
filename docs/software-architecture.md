@@ -1,107 +1,208 @@
-# Software architecture: My AI Brain
+# MyAiExperts — Software Architecture
 
-## 1. System overview
+MyAiExperts helps users build personalized AI experts from knowledge they trust.
 
-My AI Brain turns sources (YouTube channels and books today) into a local library of Markdown files
-with location markers, and defines AI experts that answer only from sources they're allowed to use,
-citing where each claim comes from.
+## Overview
 
-Principles:
-- **Local-first.** Sources, knowledge and experts live on your disk, in plain files.
-- **Preserve originals.** What was acquired is kept in `raw/`, so processing can be redone offline.
-- **Independent pipelines.** Each source type has its own small pipeline; they share conventions, not code.
-- **Experts don't know about pipelines.** An expert reads the library; it never depends on how the
-  files were made.
-- **Small and plain.** Plain functions, small dataclasses, files on disk. No services, databases or frameworks.
+MyAiExperts has three domain areas:
 
-## 2. System architecture
-
-```
-External sources ──► Acquire ──► raw/ ──► Process ──► Store ──► knowledge-library/ ──► experts/ ──► AI integrations
-(YouTube, PDFs)      (network,           (pure, no            (disk)                  (rules,       (Claude Code today)
-                      rate-limited)       network)                                     sources)
-```
-
-YouTube's rate limit is the hard constraint: about 50 admitted requests a day, and one 429 means
-waiting 24 hours. Much of the YouTube design exists to never trigger one.
-
-## 3. Modules and responsibilities
-
-| Area | Where | Responsibility |
+| Domain | Responsibility | Classification |
 |---|---|---|
-| Knowledge acquisition | `pipelines/*/…/acquire.py`, `request_guard.py` | Get sources: list channels, look up videos, fetch captions, read bookmarklet captures. Every YouTube request asks the guard first. Books have no acquire step: you add PDFs by hand. |
-| Knowledge processing | `pipelines/*/…/process.py` | Turn raw material into citation-ready Markdown: captions → `[mm:ss]` paragraphs; PDF → chapters with `<!-- p.N -->`, OCR for scans. No network, no disk. |
-| Knowledge library | `pipelines/*/…/store.py`, `knowledge-library/`, `raw/` | Persist raw snapshots and processed Markdown, indexes (`INDEX.md`, `missing.log`), status and metadata. |
-| AI experts | `experts/<name>/expert.md` | Who the expert is, which sources it may use (`sources:` in frontmatter), how it answers and cites, what it does when the sources are silent. |
-| AI integrations | `.claude/skills/<name>/SKILL.md` | Thin adapter: when Claude should use the expert, then "read `expert.md`". Other models would get their own adapter. |
+| **Knowledge Acquisition** | Acquire and process external knowledge | Supporting |
+| **Knowledge Library** | Store, organize, index, search and retrieve knowledge | Supporting |
+| **AI Experts** | Create personalized experts from selected knowledge and instructions | **Core** |
 
-`__main__.py` in each pipeline is the CLI and runs the steps in order. There is no other orchestration layer.
+**Knowledge Acquisition produces knowledge → Knowledge Library manages and retrieves it → AI Experts use it.**
 
-## 4. Domain model
+AI Experts is the core: it's what makes the product worth having. Acquisition and the library are needed,
+but they're kept simple. These are logical domain boundaries, not separate services.
 
-| Concept | Meaning | In the code / on disk |
+Source: [`diagrams/domain-flow.mmd`](diagrams/domain-flow.mmd).
+
+```mermaid
+flowchart TB
+    A["Knowledge Acquisition<br/>Acquire · Process"]
+    L["Knowledge Library<br/>Store · Organize · Retrieve"]
+    E["AI Experts<br/>Select Sources · Instructions"]
+    P["AI Platforms<br/>Claude Code · Future Models"]
+
+    A -->|"Publish knowledge"| L
+    L -->|"Provide knowledge"| E
+    E --> P
+```
+
+Raw storage supports Knowledge Acquisition: it preserves the original sources so they can be
+reprocessed offline, without downloading again.
+
+## System Architecture
+
+Source: [`diagrams/architecture.mmd`](diagrams/architecture.mmd).
+
+```mermaid
+flowchart TB
+    S["Knowledge Sources<br/>Books · YouTube"]
+
+    subgraph KP["Knowledge Acquisition"]
+        subgraph VP["Video Pipeline"]
+            YT["YouTube Ingestion<br/>Acquire → Process → Store"]
+        end
+
+        subgraph BP["Book Pipeline"]
+            BK["Book Ingestion<br/>Process → Store"]
+        end
+
+        subgraph AP["Article Pipeline (Future)"]
+            WB["Website Ingestion"]
+        end
+    end
+
+    R[("Raw Storage<br/>PDFs · Captions")]
+    K[("Knowledge Library<br/>Markdown · Notes · Citations")]
+    E["AI Experts<br/>Selected Sources · Instructions"]
+    AI["AI Platforms<br/>Claude Code · Future Models"]
+
+    S --> YT
+    S --> BK
+    S -.-> WB
+
+    YT --> K
+    BK --> K
+    WB -.-> K
+
+    KP <-.-> R
+    K --> E --> AI
+
+    style AP stroke-dasharray: 5 5
+```
+
+YouTube's rate limit is the hard constraint: about 50 requests a day, and one 429 means waiting
+24 hours. Much of the video pipeline exists to never trigger one.
+
+## Knowledge Acquisition
+
+Source-specific pipelines, the original material they collect, and their own bookkeeping:
+
+```text
+knowledge-acquisition/
+├── pipelines/
+│   ├── book-pipeline/
+│   │   └── book_ingestion/       # process.py, store.py (PDFs are added by hand)
+│   └── video-pipeline/
+│       └── youtube_ingestion/    # acquire.py, process.py, store.py, request_guard.py
+├── raw/
+│   ├── books/                # original PDFs
+│   └── youtube/              # caption snapshots, bookmarklet captures
+└── state/                    # acquisition metadata and operational state
+```
+
+It owns:
+- **Acquiring** source material, within YouTube's request limits.
+- **Preserving** originals in `raw/`.
+- **Processing** sources into citation-ready Markdown.
+- **Publishing** processed documents to the Knowledge Library.
+- **Tracking** what it knows about each source: video lists, status and retries, the request guard, the run lock and the book list.
+
+Each pipeline keeps its own `acquire.py`, `process.py` and `store.py`; there is no shared ingestion
+framework. `store.py` handles both the pipeline's own files and publishing to the library, and stays inside
+each package. There is no `processed/` folder: processed knowledge is what the library holds.
+
+| Pipeline | Diagram | Details |
 |---|---|---|
-| Source | Something knowledge comes from: a YouTube video or a book | `Video` (`process.py`); a line in `books.txt` |
-| Collection | A group of videos: a **channel collection** (has a `channel_url`) or a **topic collection** (hand-picked) | `Collection` (`store.py`); `knowledge-library/youtube/<slug>/` |
-| Captions | What YouTube has for a video: `manual` or `auto` (or `browser`, saved by hand) | `Segment` list; `raw/youtube/<slug>/<id>.json` |
-| Transcript | Our Markdown for one video, in ~30 s `[mm:ss]` paragraphs | `transcripts/<date>-<title>-<id>.md` |
-| Status | Why a video has no transcript: `no_captions`, `unavailable`, `failed` (retried up to 3 times) | `status.json`, `missing.log` |
-| Guard | The rate-limit rules: daily budget, pacing, 24 h block | `request_guard.py`; `.guard.json` |
-| Book | One PDF, converted to chapters, distilled into notes | `knowledge-library/books/<slug>/chapters/`, `notes.md` |
-| Expert | A specialist bound to chosen sources and answering rules | `experts/<name>/expert.md` |
-| Citation | A pointer back to the exact place in a source | `[mm:ss](url&t=Ns)` for videos, `(Book p.N)` for books |
+| Video | [`video-pipeline.mmd`](diagrams/video-pipeline.mmd) | [youtube.md](youtube.md): commands, rate limits, file formats, bookmarklet |
+| Book | [`book-pipeline.mmd`](diagrams/book-pipeline.mmd) | [books.md](books.md): PDF conversion, notes format, citation rules |
+| Article (future) | | Website ingestion, added as its own pipeline when needed |
 
-## 5. Data flows
+## Knowledge Library
 
-**YouTube ingestion** (`./scripts/yt.sh update`)
-1. Take the run lock (one ingestion run at a time).
-2. For each channel due for a listing (at most once a day), list its videos and merge them into `videos.json`.
-3. Queue the videos without a transcript, channels taken in turn (round-robin).
-4. For each video: use `raw/youtube/<slug>/<id>.json` if it exists; otherwise ask the guard, fetch the
-   captions and save them to `raw/` first.
-5. Process into a transcript and store it; record failures in `status.json`.
-6. Always finish with dated file names, `INDEX.md` and `missing.log`, even after a Stop.
+Processed knowledge and everything needed to find and cite it.
 
-**Book ingestion** (`./scripts/books.sh <slug>`)
-1. Read `books.txt` → PDF in `raw/books/`.
-2. Process: extract text (OCR if scanned), find chapters (outline → bold headings → 25-page parts).
-3. Store: rewrite `chapters/` only. `notes.md` is never touched.
-4. In Claude Code, `/extract-book <slug>` reads the chapters and writes `notes.md`.
+**Today** it is plain Markdown, and Claude Code retrieves knowledge by searching and reading the files:
 
-**Expert question answering** (Claude Code)
-1. A question matches a skill's description, or the user calls `/<expert>`.
-2. The skill reads `experts/<name>/expert.md`.
-3. The expert greps its sources (`INDEX.md`, transcripts, `notes.md`, then `chapters/` for detail).
-4. It answers with citations, or says the sources don't cover it.
+```text
+knowledge-library/
+├── books/<slug>/
+│   ├── chapters/             # NN-title.md with <!-- p.N --> page markers
+│   └── notes.md              # written by /extract-book
+└── youtube/<slug>/
+    ├── transcripts/          # <date>-<title>-<id>.md with [mm:ss] paragraphs, plus INDEX.md
+    └── missing.log           # videos with no transcript, so experts can say what isn't covered
+```
 
-## 6. Folder structure
+Everything here can be rebuilt from `raw/` (`./scripts/yt.sh reprocess`, `./scripts/books.sh --force`),
+except `notes.md`, which is curated.
 
-| Folder | Responsibility |
+**Why retrieval belongs here, not in AI Experts.** Finding the relevant passage and its citation is the same
+job for every expert. If each expert did it its own way, every expert would duplicate it and search would
+behave differently from one expert to the next. An expert's job is to choose *which* sources it may use and
+*how* it answers. The library's job is to find the evidence in them.
+
+**Future.** When plain file search stops being enough, the library may get its own code:
+
+```text
+knowledge-library/
+├── library/
+│   ├── documents.py          # document management and metadata
+│   ├── collections.py        # collections and source organization
+│   ├── indexing.py           # full-text and semantic search indexing
+│   └── retrieval.py          # relevant passages, source filtering, citation references
+└── data/
+    ├── books/
+    └── youtube/
+```
+
+At that point Knowledge Acquisition publishes documents through a Knowledge Library interface instead of
+writing its files directly, and experts retrieve through the library instead of searching files. None of
+this exists yet: no placeholder modules, databases or indexes until there is a real need.
+
+## AI Experts
+
+```text
+experts/
+└── <expert-name>/
+    └── expert.md
+```
+
+Each expert owns:
+- Its identity and purpose.
+- The knowledge sources it may use (`sources:` in the frontmatter).
+- Its expert-specific instructions.
+- Its rules for evidence-grounded answers and citations: cite, or say the sources don't cover it.
+
+Experts never hold copies of knowledge documents. They point at library collections, so the same
+knowledge serves several experts. New experts start from `experts/_template/`.
+
+`.claude/skills/<name>/SKILL.md` is the Claude Code adapter: a thin file that tells Claude when to use an
+expert and to read its `expert.md`. It is an integration, not a domain; other platforms would get their own
+adapter.
+
+## Storage Ownership
+
+Each domain owns its own files, so the library holds only what experts read:
+
+| Files | Owner |
 |---|---|
-| `raw/` | Original material: `books/` PDFs, `youtube/` caption snapshots and bookmarklet captures |
-| `pipelines/video-pipeline/` | `youtube_ingestion` package, its tests and Docker image |
-| `pipelines/book-pipeline/` | `book_ingestion` package, its tests and Docker image (Tesseract for OCR) |
-| `knowledge-library/` | Processed Markdown and per-source metadata; `.guard.json` and `.lock` for YouTube |
-| `experts/` | Expert definitions; `_template/` for new ones |
-| `.claude/skills/` | Claude Code entry points; role skills are also linked into `~/.claude/skills/` |
-| `scripts/` | `yt.sh`, `books.sh`, `test.sh`: every command |
-| `docs/` | This file and the two pipeline docs |
+| `knowledge-acquisition/raw/`: PDFs, caption snapshots, bookmarklet captures | Acquisition |
+| `knowledge-acquisition/state/`: rate-limit guard, run lock, video lists, status and retries, `books.txt`, OCR caches | Acquisition |
+| `knowledge-library/`: transcripts, `INDEX.md`, `missing.log`, chapters, `notes.md` | Library |
+| `experts/`, `.claude/skills/` | AI Experts, adapter |
 
-Git holds only the tools and `experts/_template/`; `raw/`, `knowledge-library/`, `experts/` and
-`.claude/skills/` stay local.
+Tests check this boundary: a pipeline run leaves nothing in the library but published files. Data from
+before this layout is moved by `scripts/migrate-storage.py` (a dry run by default; `--apply` moves).
 
-## 7. Design decisions
+## Supporting Components
 
-- **Local-first, plain files.** Everything is greppable Markdown and JSON; no database or search index.
-- **Markdown with location markers** is the one convention every source follows, so any expert can cite
-  any source the same way.
-- **Source-grounded answers.** Experts cite or decline; they never fill gaps from model memory unless asked.
-- **Independent pipelines.** Different dependencies (yt-dlp vs. PyMuPDF + Tesseract), different failure
-  modes, separate Docker images. Shared conventions, no shared code.
-- **Raw before processed.** Captions cost scarce requests, so they're saved before processing and reused.
-- **The guard is separate and conservative.** Budget, pacing and blocks are persisted on disk and shared
-  by every run; an admitted operation can be many HTTP requests (a yt-dlp listing).
-- **Experts are tool-agnostic.** `expert.md` holds the content; `SKILL.md` is a three-line Claude adapter.
-  Claude Code today, other models later through their own adapters.
-- **Docker only.** No local Python environment to maintain; tests run in the image with no network.
-- **Not yet:** article pipeline, semantic search, web UI. Add them when there's a real need.
+| Folder | Purpose |
+|---|---|
+| `scripts/` | CLI entry points: `yt.sh`, `books.sh`, `test.sh` (all run in Docker) |
+| `docs/` | Architecture and pipeline documentation; Mermaid sources in `docs/diagrams/` |
+
+Git holds only the tools and `experts/_template/`. Sources, knowledge, experts and skills stay local.
+
+## Guidelines
+
+- Keep the working pipelines; change structure only when it helps, not to satisfy DDD.
+- Keep `acquire.py`, `process.py` and `store.py` source-specific; no shared ingestion framework.
+- Keep raw content separate from processed knowledge; no `processed/` folder.
+- Retrieval is a Knowledge Library responsibility, not an AI Experts one.
+- No pipeline depends on an expert; experts depend only on the library.
+- Don't build future library capabilities (indexing, semantic search, databases) before they're needed.

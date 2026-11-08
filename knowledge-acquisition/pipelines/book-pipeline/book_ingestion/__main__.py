@@ -1,7 +1,7 @@
-"""./scripts/books.sh [slug ...] [--force]: convert the books in knowledge-library/books/books.txt.
+"""./scripts/books.sh [slug ...] [--force]: convert the books in knowledge-acquisition/state/books/books.txt.
 
-books.txt paths are relative to BOOKS_DIR (raw/books by default; mounted read-only at /books).
-Books have no ACQUIRE step yet: you put the PDFs in raw/books/ yourself.
+books.txt paths are relative to BOOKS_DIR (knowledge-acquisition/raw/books by default; mounted read-only at /books).
+Books have no ACQUIRE step yet: you put the PDFs in knowledge-acquisition/raw/books/ yourself.
 """
 import argparse
 import sys
@@ -18,7 +18,7 @@ def convert(slug: str, pdf: Path, force: bool) -> None:
         return
     start = time.time()
     store.book_dir(slug).mkdir(parents=True, exist_ok=True)
-    pages, sections = process(pdf, store.book_dir(slug) / "ocr.pdf")
+    pages, sections = process(pdf, store.ocr_cache(slug))
     store.write_chapters(slug, pdf, pages, sections)
     print(f"✓ {slug}  {len(sections)} chapters, {len(pages)} pages  ({time.time() - start:.0f}s)")
 
@@ -32,7 +32,7 @@ def main() -> int:
     books = store.read_books()
     unknown = [s for s in args.slugs if s not in books]
     if unknown:
-        print(f"✗ not in knowledge-library/books/books.txt: {', '.join(unknown)}", file=sys.stderr)
+        print(f"✗ not in knowledge-acquisition/state/books/books.txt: {', '.join(unknown)}", file=sys.stderr)
         return 1
 
     failed = 0

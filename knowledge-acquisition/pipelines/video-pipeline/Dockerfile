@@ -3,5 +3,5 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY youtube_ingestion youtube_ingestion
-ENV YT_LIBRARY=/library YT_RAW=/raw
+ENV YT_LIBRARY=/library YT_RAW=/raw YT_STATE=/state
 ENTRYPOINT ["python", "-m", "youtube_ingestion"]

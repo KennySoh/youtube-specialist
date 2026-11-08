@@ -1,26 +1,54 @@
-# Python
+# The repo ships only the tools: code, scripts, docs and experts/_template/.
+# Your sources, knowledge, experts, skills and secrets stay local (back them up separately).
+# Note: git only allows comments on their own line.
+
+# --- Your data ---------------------------------------------------------------------------------
+# Original PDFs, caption snapshots, bookmarklet captures
+knowledge-acquisition/raw/
+# Rate-limit guard, run lock, video lists, status, books.txt, OCR caches
+knowledge-acquisition/state/
+# Processed transcripts, chapters, notes
+knowledge-library/
+# Old location, before scripts/migrate-storage.py
+/raw/
+# Your experts, except the template
+experts/*
+!experts/_template/
+# Books are copyrighted: never commit one, wherever it lands
+*.pdf
+# Bookmarklet downloads, before ./scripts/yt.sh import
+*.transcript.json
+
+# --- Claude Code -------------------------------------------------------------------------------
+# Your expert skills (made from experts/, with absolute paths)
+.claude/skills/
+.claude/settings.local.json
+
+# --- Secrets -----------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- Logs and temp files -----------------------------------------------------------------------
+# e.g. fetch.log from the cron job
+*.log
+*.tmp
+*.tmp.pdf
+
+# --- Python ------------------------------------------------------------------------------------
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 
-# Local Claude Code settings (skills in .claude/skills/ are committed)
-.claude/settings.local.json
-
-# Secrets
-.env
-
-# Editor / OS
+# --- Editor / OS -------------------------------------------------------------------------------
 .vscode/
 .idea/
 *.swp
 .DS_Store
+Thumbs.db
 
-# Your own sources, knowledge, experts and skills stay local — the repo ships only the tools.
-raw/
-knowledge-library/
-experts/*
-!experts/_template/
-.claude/skills/
+# --- Personal notes ----------------------------------------------------------------------------
 advise*.md
 plan.md
 youtube_specialist_transcript_reliability.md

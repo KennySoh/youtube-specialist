@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import fcntl
 import itertools
 import re
@@ -187,8 +188,10 @@ def todo_command(args) -> None:
         print(f"{status:12s} {c.slug}/{v.id}  {v.url or f'https://youtu.be/{v.id}'}  {v.title[:50]}")
     if len(rows) > args.n:
         print(f"… {len(rows) - args.n} more (-n {len(rows)} for all)")
-    for _, _, v, _ in rows[:args.open]:
-        webbrowser.open_new_tab(v.url or f"https://youtu.be/{v.id}")  # just opens a tab; no request from here
+    opened = [webbrowser.open_new_tab(v.url or f"https://youtu.be/{v.id}")  # just opens a tab; no request from here
+              for _, _, v, _ in rows[:args.open]]
+    if opened and not all(opened):
+        print("(no browser here, e.g. inside Docker: open the links above yourself)")
     if rows:
         print("\nOpen the transcript panel, click the Save transcript bookmark, then: ./yt import")
 
@@ -291,7 +294,8 @@ def main() -> None:
     t.add_argument("--open", type=int, default=0, metavar="N", help="open the first N in your browser")
     t.set_defaults(run=todo_command)
     i = sub.add_parser("import", help="turn transcripts saved with the bookmarklet into .md files (no network)")
-    i.add_argument("dir", nargs="?", default="~/Downloads")
+    i.add_argument("dir", nargs="?", default=os.environ.get("YT_DOWNLOADS", "~/Downloads"),
+                   help="folder with *.transcript.json (default: your Downloads)")
     i.set_defaults(run=import_command)
     r = sub.add_parser("reprocess", help="rebuild transcripts from raw/ only (no network)")
     r.add_argument("slug", nargs="?")

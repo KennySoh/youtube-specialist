@@ -1,12 +1,16 @@
-# docker compose run --rm yt <command>   (knowledge-library/youtube/ and .env stay on the host)
+# Used by ./yt (scripts/yt.sh). Data stays on the host; .env sets the limits.
 services:
   yt:
     build: pipelines/video-pipeline
+    image: my-ai-brain-yt
     user: "1000:1000"
     volumes:
       - ./knowledge-library/youtube:/library
       - ./raw/youtube:/raw
-      - /etc/localtime:/etc/localtime:ro   # same day boundary for the daily budget as the host
+      - ${HOME}/Downloads:/downloads        # ./yt import reads bookmarklet files from here
+      - /etc/localtime:/etc/localtime:ro    # same day boundary for the daily budget as the host
+    environment:
+      YT_DOWNLOADS: /downloads
     env_file:
       - path: .env
         required: false

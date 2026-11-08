@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ./scripts/books (or ./books) [slug ...] [--force]   PDFs in knowledge-library/books/books.txt → knowledge-library/books/<slug>/chapters/
+# ./books [slug ...] [--force]   PDFs in knowledge-library/books/books.txt → knowledge-library/books/<slug>/chapters/
 # PDFs are read from $BOOKS_DIR (default raw/books), mounted read-only. Code: pipelines/book-pipeline/
 set -euo pipefail
 cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.."  # repo root, also via the ./books symlink

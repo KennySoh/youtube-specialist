@@ -9,8 +9,8 @@ import re
 import shutil
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
-KNOWLEDGE = ROOT / "knowledge-library" / "books"
+# BOOKS_LIBRARY overrides it (tests); otherwise <repo>/knowledge-library/books.
+KNOWLEDGE = Path(os.environ.get("BOOKS_LIBRARY") or Path(__file__).resolve().parents[3] / "knowledge-library" / "books")
 BOOKS = Path(os.environ.get("BOOKS_DIR", "/books"))  # raw/books, mounted read-only in Docker
 
 

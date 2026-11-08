@@ -21,7 +21,6 @@ knowledge-library/
 experts/*
 !experts/_template/
 .claude/skills/
-docs/plans/
 advise*.md
 plan.md
 youtube_specialist_transcript_reliability.md

@@ -16,7 +16,7 @@ Your knowledge. Your experts. Your personal AI.
 | `knowledge-library/` | Knowledge library | Searchable Markdown: `youtube/`, `books/`, `notes/` (later) |
 | `experts/` | AI experts | `experts/<name>/expert.md`: who the expert is, which sources it may use, how it answers |
 | `.claude/skills/` | Claude integration | `SKILL.md` per expert: when Claude uses it, then "read expert.md" |
-| `scripts/` | Commands | `scripts/yt`, `scripts/books`; `./yt` and `./books` at the root are symlinks to them |
+| `scripts/` | Commands | `yt.sh`, `books.sh`, `test.sh`; `./yt` and `./books` at the root are symlinks |
 
 `raw/`, `knowledge-library/`, `experts/` and `.claude/skills/` are git-ignored: the repo ships only
 the tools, plus `experts/_template/` (a starting `expert.md` and `SKILL.md`).
@@ -29,17 +29,32 @@ location markers, an index or notes file, and experts that grep the files and ci
 | YouTube channel | `./yt` | `knowledge-library/youtube/<slug>/transcripts/*.md` + `INDEX.md`, `missing.log` | `[mm:ss]` |
 | Book (PDF) | `./books`, then `/extract-book` | `knowledge-library/books/<slug>/chapters/*.md` + `notes.md` | `<!-- p.N -->` |
 
-Details: [docs/youtube.md](docs/youtube.md), [docs/books.md](docs/books.md).
 
 ## Setup
 
+Everything runs in Docker; nothing to install but Docker itself.
+
 ```bash
-./yt setup                      # Python 3.10+ venv (uses uv if python3-venv is missing)
+./yt setup                      # build the YouTube image (later runs rebuild it when the code changes)
 cp .env.example .env            # optional: daily limit, pauses, BOOKS_DIR
 ```
 
-Or with Docker: `docker compose build`, then `docker compose run --rm yt <command>`.
-`./books` always runs in Docker (it needs Tesseract for scanned PDFs).
+`./books` builds its own image on first use (it needs Tesseract for scanned PDFs).
+
+## Conventions (experts depend on these; don't change them)
+
+- Transcript files: `<YYYY-MM-DD>-<title-slug>-<video_id>.md` (`0000-00-00` until the date is known),
+  frontmatter `title`, `video_id`, `url`, `channel`, `published_at`, `duration_seconds`,
+  `transcript_source` (`manual`, `auto` or `browser`), `fetched_at`; body in ~30 s `[mm:ss]` paragraphs.
+- `INDEX.md` and `missing.log` (`id <tab> status <tab> title`) per collection.
+- Book chapters: `chapters/NN-title.md` with `<!-- p.N -->` before every page (N = PDF page).
+- The commands, and the guard: never a request while blocked or over budget.
+
+Words used in the code: a **collection** is one folder in `knowledge-library/youtube/` (a **channel
+collection** has a `channel_url`, a **topic collection** doesn't); **captions** are what YouTube has
+(`manual` or `auto`); a **transcript** is our `.md`; a **status** says why a video has none
+(`no_captions`, `unavailable`, `failed`, retried up to 3 times); the **guard** is the daily **budget**,
+the **pace** (60–120 s between caption requests) and the 24 h **block** after a 429 or bot check.
 
 # YouTube
 
@@ -82,7 +97,8 @@ delete `knowledge-library/youtube/.guard.json` or retry by hand.
 4. `./yt import` (default `~/Downloads`) writes the transcripts (`transcript_source: browser`),
    updates `INDEX.md` and `missing.log`, and moves the files to `raw/youtube/<slug>/<id>.browser.json`.
 
-Only videos already in a collection are imported. With Docker, run `import` locally or mount the folder.
+Only videos already in a collection are imported. `~/Downloads` is mounted into the container;
+inside Docker `--open` can't start your browser, so it just lists the links.
 
 # Books
 
@@ -93,6 +109,26 @@ Only videos already in a collection are imported. With Docker, run `import` loca
 
 Add a book: put the PDF under `raw/books/` (or set `BOOKS_DIR`), append `<slug> <path relative to it>`
 to `knowledge-library/books/books.txt`, run `./books <slug>`, then `/extract-book <slug>` in Claude Code.
+`./books --force` rewrites `chapters/` only; `notes.md` is never touched. Open book work is tracked in
+`knowledge-library/books/plan.md`.
+
+## Book notes (`notes.md`)
+
+Written by `/extract-book` from `chapters/`, read first by the role experts.
+
+1. **Overview**: thesis, mental model, chapter → topic map, missing pages.
+2. **Concepts**, one section each: **Claim** (with page), **Why**, **When / when not**, **How to apply**,
+   **Anti-pattern**, **Review question + evidence**, **Related**. Mark your own interpretation or
+   example with *(interpretation)*.
+3. **Checklist**: review questions the experts ask.
+
+Split into `notes/<topic>.md` only past ~500 lines. Rules:
+
+1. **Only cite what's in `chapters/`.** Never invent pages or quotes; say which pages are missing.
+   `p.N` is the PDF page from the `<!-- p.N -->` markers, not the number printed in the book.
+2. **Keep the reasoning, not just the rule**: the why, trade-offs and exceptions; paraphrase.
+3. **Judgment, not dogma**: when books conflict, explain the context and record the decision.
+4. **Experts stay short**: read `notes.md` first, then grep `chapters/` for exact detail.
 
 The role experts (product-manager, ux-designer, software-architect, software-engineer) are used from
 other projects, so their skills are symlinked into `~/.claude/skills/` and use absolute paths:
@@ -106,8 +142,7 @@ done
 # Development
 
 ```bash
-cd pipelines/video-pipeline && ../../.venv/bin/python -m pytest tests   # never contacts YouTube
-cd pipelines/book-pipeline && ../../.venv/bin/python -m pytest tests    # book store; no Docker needed
+./scripts/test.sh     # both pipelines' tests in Docker: no network, no real data mounted
 ```
 
 Every pipeline has the same steps: **acquire** (get the source) → **process** (turn it into
@@ -119,5 +154,5 @@ Markdown) → **store** (write `raw/` and `knowledge-library/`); `__main__.py` r
 - `pipelines/book-pipeline/book_ingestion/`: `process.py` (PDF → pages and chapters, OCR), `store.py`
   (`books.txt`, chapter files), `__main__.py`. No acquire step: you put the PDFs in `raw/books/`.
 
-If channel listing breaks, update yt-dlp with `.venv/bin/pip install -U yt-dlp yt-dlp-ejs` and copy
-the new versions into `pipelines/video-pipeline/requirements.txt`.
+If channel listing breaks, raise the `yt-dlp` and `yt-dlp-ejs` versions in
+`pipelines/video-pipeline/requirements.txt`, then `./yt setup`.

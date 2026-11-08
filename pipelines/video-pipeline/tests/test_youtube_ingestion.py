@@ -1,4 +1,4 @@
-"""Tests for what must not change (see README, Conventions). Nothing here contacts YouTube."""
+"""Tests for what must not change (see docs/youtube.md, Files). Nothing here contacts YouTube."""
 from __future__ import annotations
 
 import json

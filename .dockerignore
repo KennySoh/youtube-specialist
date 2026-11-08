@@ -1,0 +1,4 @@
+*
+!requirements.txt
+!ytspec/
+ytspec/__pycache__/

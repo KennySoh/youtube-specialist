@@ -1,74 +1,60 @@
 # youtube-specialist
 
-Turn any YouTube channel into a Claude Code skill that answers from that channel's actual video transcripts, quoting with `[mm:ss]` links instead of guessing from general knowledge.
+Turn a YouTube channel into a Claude Code skill that answers from the channel's own transcripts, with `[mm:ss]` links.
 
-## Quick start
+## Setup
 
-```bash
-git clone git@github.com:KennySoh/youtube-specialist.git
-cd youtube-specialist
-./yt setup                                                    # once: .venv + dependencies
-./yt add "https://www.youtube.com/@SomeChannel" "Some Channel"   # fetch every transcript
-```
-
-Then open Claude Code in this repo and say:
-
-> create the some-channel skill from templates/SKILL.md
-
-Claude reads the transcripts, fills in the template (persona, coverage, the creator's vocabulary) and saves it as `.claude/skills/some-channel/SKILL.md`. Now ask away:
-
-```
-/some-channel what do you recommend for ...?
-```
-
-## Commands
+**Local** (Python 3.10+):
 
 ```bash
-./yt add <channel_url> "<Name>" [slug]   # new channel (slug defaults to the name, lowercased)
-./yt update                              # pull new videos for every channel
-./yt update <slug>                       # just one channel
-./yt list                                # channels, transcript counts, missing counts
+./yt setup
 ```
 
-Re-running is always safe: videos that already have a transcript are skipped, and ones that failed before are retried.
+**Or Docker:**
 
-## What's where
-
-```
-yt                          # the only command you need
-templates/SKILL.md          # starting point for each /<slug> skill
-scripts/                    # the Python steps ./yt runs (list → fetch → fix dates → index)
-youtuber/<slug>/            # created by ./yt add — not committed
-  channel_url, channel_name # remembered so `./yt update` needs no arguments
-  transcripts/              # one .md per video + INDEX.md
-  data/                     # index.json, missing.log (videos with no transcript yet)
-.claude/skills/<slug>/      # your generated skills — not committed
+```bash
+docker compose build
+alias yt='docker compose run --rm yt'   # run from this folder; use `yt …` wherever this guide says `./yt …`
 ```
 
-Channel data and generated skills are git-ignored: the transcripts are the creators' content, so each user builds their own locally.
+Optional: `cp .env.example .env` to change the daily limit or the pause between videos.
 
-## Transcript format
+## Use
 
-```markdown
----
-title: Some Video Title
-video_id: abc123XYZ_0
-url: https://www.youtube.com/watch?v=abc123XYZ_0
-channel: Some Channel
-published_at: '2026-05-02'
-transcript_source: auto
----
-
-# Some Video Title
-
-[00:00] Hey everyone, ...
-[00:32] ...
+```bash
+./yt add "https://www.youtube.com/@SomeChannel" "Some Channel"   # add a channel, start fetching
+./yt add "https://youtu.be/<id>"                                 # same, found from one of its videos
+./yt grab "https://youtu.be/<id>" <topic>                        # just one video, into a topic
+./yt update [slug]                                               # new videos + missing transcripts
+./yt list                                                        # progress and today's budget (no network)
 ```
 
-Captions are grouped into ~30-second `[mm:ss]` blocks so the skill can cite a working `&t=<seconds>s` link.
+Then, in Claude Code: *"create the some-channel skill from templates/SKILL.md"*, and ask `/some-channel …`.
 
-## Gotchas
+Transcripts land in `library/<slug>/transcripts/`. That folder, and your skills, are git-ignored.
 
-- **Missing transcripts.** Some videos have no captions, and YouTube rate-limits large fetches. Failures land in `data/missing.log`; run `./yt update <slug>` again later.
-- **Unknown dates.** For some channels YouTube's listing doesn't return upload dates, so files are named `0000-00-00-…`. Tell the skill to treat those videos as undated.
-- **Noisy captions.** Auto-generated captions mangle names and numbers; skills quote them as-is rather than rewriting.
+## Daily runs
+
+About 50 videos a day get fetched, so a big channel takes several days. It's safe to re-run at any
+time: anything already fetched is skipped. To run it daily with cron (`crontab -e`):
+
+```
+0 3 * * * cd /path/to/youtube-specialist && ./yt update >> fetch.log 2>&1
+```
+
+(With Docker: `docker compose run --rm yt update`.)
+
+## If YouTube blocks you
+
+A 429 stops every request for 24 h. `./yt list` shows when the block ends. Wait it out: don't
+delete `library/.guard.json` or retry by hand.
+
+## Development
+
+```bash
+.venv/bin/python -m pytest tests   # never contacts YouTube
+```
+
+Code: `ytspec/youtube.py` (requests), `guard.py` (rate limits), `library.py` (disk),
+`__main__.py` (commands). If channel listing breaks, update yt-dlp with
+`.venv/bin/pip install -U yt-dlp yt-dlp-ejs` and copy the new versions into `requirements.txt`.

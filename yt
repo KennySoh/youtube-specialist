@@ -1,73 +1,14 @@
 #!/usr/bin/env bash
-# One entry point for the whole pipeline.
-#
-#   ./yt setup                       create .venv and install requirements
-#   ./yt add <channel_url> "<Name>"  add a new channel and fetch everything
-#   ./yt update [slug]               refresh one channel, or all of them
-#   ./yt list                        show channels and transcript counts
+# ./yt setup | add | grab | update | list    (./yt --help for details)
 set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT"
-
-slugify() { echo "$1" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//; s/-$//'; }
-
-need_venv() {
-    [[ -f .venv/bin/activate ]] || { echo "No .venv yet — run: ./yt setup" >&2; exit 1; }
-    source .venv/bin/activate
-}
-
-# Runs list → fetch → repair-dates → build-index for youtuber/<slug>/.
-run_pipeline() {
-    local slug="$1" base="youtuber/$1"
-    local url name
-    url="$(cat "$base/channel_url")"
-    name="$(cat "$base/channel_name")"
-
-    echo "→ $name ($slug): listing videos"
-    python3 scripts/list_videos.py "$url" --out "$base/data" --channel-name "$name"
-    echo "→ $name: fetching transcripts (existing ones are skipped)"
-    python3 scripts/fetch_transcripts.py --channel-dir "$base" --sleep 0.4
-    python3 scripts/repair_dates.py --index "$base/data/index.json" --transcripts "$base/transcripts"
-    python3 scripts/build_index.py --dir "$base/transcripts"
-    echo "Done. Last refresh: $(date -Iseconds)" | tee -a "$base/data/refresh.log"
-}
-
-case "${1:-help}" in
-    setup)
-        python3 -m venv .venv
-        .venv/bin/pip install -q -r requirements.txt
-        echo "✓ ready ($(.venv/bin/yt-dlp --version))"
-        ;;
-    add)
-        [[ $# -ge 3 ]] || { echo 'Usage: ./yt add <channel_url> "<Display Name>" [slug]' >&2; exit 1; }
-        need_venv
-        slug="${4:-$(slugify "$3")}"
-        mkdir -p "youtuber/$slug/data" "youtuber/$slug/transcripts"
-        echo "${2%/videos}/videos" > "youtuber/$slug/channel_url"
-        echo "$3" > "youtuber/$slug/channel_name"
-        run_pipeline "$slug"
-        echo
-        echo "Next: ask Claude to \"create the $slug skill\" from templates/SKILL.md"
-        ;;
-    update)
-        need_venv
-        if [[ -n "${2:-}" ]]; then
-            [[ -f "youtuber/$2/channel_url" ]] || { echo "Unknown channel '$2' — see ./yt list" >&2; exit 1; }
-            run_pipeline "$2"
-        else
-            for f in youtuber/*/channel_url; do run_pipeline "$(basename "$(dirname "$f")")"; done
-        fi
-        ;;
-    list)
-        for d in youtuber/*/; do
-            slug="$(basename "$d")"
-            have=$(find "$d/transcripts" -name '*.md' ! -name INDEX.md 2>/dev/null | wc -l)
-            missing=$( (wc -l < "$d/data/missing.log") 2>/dev/null || echo 0)
-            printf '%-14s %4s transcripts, %4s missing   %s\n' "$slug" "$have" "$missing" "$(cat "$d/channel_url" 2>/dev/null || echo '(no channel_url)')"
-        done
-        ;;
-    *)
-        sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'
-        ;;
-esac
+if [[ "${1:-}" == setup ]]; then
+    python3 -m venv .venv
+    .venv/bin/pip install -q -r requirements.txt
+    echo "✓ ready ($(.venv/bin/yt-dlp --version))"
+    exit
+fi
+[[ -x .venv/bin/python ]] || { echo "No .venv yet — run: ./yt setup" >&2; exit 1; }
+if [[ -f .env ]]; then set -a; source .env; set +a; fi
+PATH="$PWD/.venv/bin:$PATH" exec .venv/bin/python -m ytspec "$@"

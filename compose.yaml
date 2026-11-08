@@ -1,0 +1,11 @@
+# docker compose run --rm yt <command>   (library/ and .env stay on the host)
+services:
+  yt:
+    build: .
+    user: "1000:1000"
+    volumes:
+      - ./library:/app/library
+      - /etc/localtime:/etc/localtime:ro   # same day boundary for the daily budget as the host
+    env_file:
+      - path: .env
+        required: false

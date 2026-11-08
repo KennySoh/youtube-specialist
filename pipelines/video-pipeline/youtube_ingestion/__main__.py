@@ -43,26 +43,32 @@ def to_fetch(c: Collection, first: Video | None = None, only: bool = False) -> l
 
 
 def fetch(queue: list[tuple[Collection, Video]]) -> None:
-    """Fetch each video's captions in order, keeping every collection's status.json up to date."""
+    """Get each video's captions in order (a raw/ snapshot first, else YouTube), keeping every
+    collection's status.json up to date."""
     statuses = {c.slug: c.statuses() for c, _ in queue}
     failed_in_a_row = 0
     for c, video in queue:
-        try:
-            captions, segments = acquire.fetch_captions(video.id)
-        except acquire.NoTranscript as e:
-            record_failure(statuses[c.slug], video.id, e.status, e.error)
-            c.save_statuses(statuses[c.slug])
-            print(f"{e.status:12s} {c.slug}/{video.id}  {e.error}", flush=True)
-            failed_in_a_row = failed_in_a_row + 1 if e.status == "failed" else 0
-            if failed_in_a_row >= MAX_FAILED_IN_A_ROW:
-                raise request_guard.Stop(f"{MAX_FAILED_IN_A_ROW} failures in a row; stopping before YouTube gets annoyed")
-            continue
-        c.save_raw(video, captions, segments)
-        c.write_transcript(video, captions, segments)
+        if raw := c.load_raw(video.id):  # fetched before but never processed: no request needed
+            captions, segments, fetched_at = raw
+            source = "  (from raw/)"
+        else:
+            try:
+                captions, segments = acquire.fetch_captions(video.id)
+            except acquire.NoTranscript as e:
+                record_failure(statuses[c.slug], video.id, e.status, e.error)
+                c.save_statuses(statuses[c.slug])
+                print(f"{e.status:12s} {c.slug}/{video.id}  {e.error}", flush=True)
+                failed_in_a_row = failed_in_a_row + 1 if e.status == "failed" else 0
+                if failed_in_a_row >= MAX_FAILED_IN_A_ROW:
+                    raise request_guard.Stop(f"{MAX_FAILED_IN_A_ROW} failures in a row; stopping before YouTube gets annoyed")
+                continue
+            fetched_at = c.save_raw(video, captions, segments)  # keep the raw captions before processing
+            source = ""
+        c.write_transcript(video, captions, segments, fetched_at)
         if statuses[c.slug].pop(video.id, None):
             c.save_statuses(statuses[c.slug])
         failed_in_a_row = 0
-        print(f"{captions:12s} {c.slug}/{video.id}  {video.title[:60]}", flush=True)
+        print(f"{captions:12s} {c.slug}/{video.id}  {video.title[:60]}{source}", flush=True)
 
 
 def round_robin(lists: list[list]) -> list:

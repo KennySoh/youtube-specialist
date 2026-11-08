@@ -78,8 +78,8 @@ def join(frontmatter: dict, body: str) -> str:
     return "---\n" + yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True) + "---\n" + body
 
 
-def render(video: Video, captions: str, segments: list[Segment]) -> str:
-    """captions: 'manual' or 'auto'."""
+def render(video: Video, captions: str, segments: list[Segment], fetched_at: str | None = None) -> str:
+    """captions: 'manual', 'auto' or 'browser'. fetched_at: YYYY-MM-DD the captions were fetched (default today)."""
     frontmatter = {
         "title": video.title,
         "video_id": video.id,
@@ -88,7 +88,7 @@ def render(video: Video, captions: str, segments: list[Segment]) -> str:
         "published_at": video.published,
         "duration_seconds": video.duration,
         "transcript_source": captions,
-        "fetched_at": dt.date.today().isoformat(),
+        "fetched_at": fetched_at or dt.date.today().isoformat(),
     }
     lines = ["", f"# {video.title}", ""] + [f"[{timestamp(start)}] {text}" for start, text in paragraphs(segments)]
     return join(frontmatter, "\n".join(lines) + "\n")

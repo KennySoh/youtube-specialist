@@ -12,6 +12,7 @@ knowledge-library/youtube/<slug>/           one collection
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import json
 import os
 import shutil
@@ -108,20 +109,41 @@ class Collection:
         """video id → transcript file."""
         return {m.group(1): f for f in self.transcripts.glob("*.md") if (m := process.FILE_ID.search(f.name))}
 
-    def save_raw(self, video: Video, captions: str, segments: list[Segment]) -> None:
-        """The captions exactly as fetched, so a transcript can be rebuilt without asking YouTube again."""
+    def save_raw(self, video: Video, captions: str, segments: list[Segment]) -> str:
+        """The captions exactly as fetched, so a transcript can be rebuilt without asking YouTube again.
+        Returns the fetch date (YYYY-MM-DD) for the transcript's fetched_at."""
+        fetched_at = dt.datetime.now().astimezone().isoformat(timespec="seconds")
         save_json(self.raw / f"{video.id}.json", {
-            "video_id": video.id, "captions": captions, "fetched_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "video_id": video.id, "captions": captions, "fetched_at": fetched_at,
             "segments": [dataclasses.asdict(s) for s in segments]})
+        return fetched_at[:10]
+
+    def load_raw(self, video_id: str) -> tuple[str, list[Segment], str] | None:
+        """(captions, segments, fetch date) from raw/, or None if there's no usable snapshot."""
+        data = load_json(self.raw / f"{video_id}.json", None)
+        try:
+            segments = [Segment(float(s["start"]), str(s["text"]), float(s.get("duration", 0))) for s in data["segments"]]
+            if data["video_id"] != video_id or data["captions"] not in ("manual", "auto") or not segments:
+                return None
+            return data["captions"], segments, str(data.get("fetched_at", ""))[:10] or None
+        except (TypeError, KeyError, ValueError):
+            return None
+
+    def capture_path(self, video_id: str) -> Path:
+        """Where an imported bookmarklet capture is kept."""
+        return self.raw / f"{video_id}.browser.json"
 
     def keep_capture(self, path: Path, video_id: str) -> None:
         """Move an imported bookmarklet file into raw/ next to the fetched captions."""
         self.raw.mkdir(parents=True, exist_ok=True)
-        shutil.move(path, self.raw / f"{video_id}.browser.json")
+        shutil.move(path, self.capture_path(video_id))
 
-    def write_transcript(self, video: Video, captions: str, segments: list[Segment]) -> None:
-        write_atomic(self.transcripts / process.file_name(video.published, video.title, video.id),
-                     process.render(video, captions, segments))
+    def write_transcript(self, video: Video, captions: str, segments: list[Segment], fetched_at: str | None = None) -> None:
+        path = self.transcripts / process.file_name(video.published, video.title, video.id)
+        old = self.transcript_files().get(video.id)
+        write_atomic(path, process.render(video, captions, segments, fetched_at))
+        if old and old != path:  # rebuilt under a new name (title or date changed): no duplicate
+            old.unlink()
 
     def date_transcripts(self, videos: list[Video]) -> None:
         """A listing can learn a video's date after its transcript was saved as 0000-00-00-…: fix those."""

@@ -217,3 +217,67 @@ def test_todo_lists_given_up_videos_first(capsys):
     cli.todo_command(type("Args", (), {"slug": None, "n": 20, "open": 0})())
     lines = [ln for ln in capsys.readouterr().out.splitlines() if "ch/" in ln]
     assert ["hard0000000" in lines[0], "new00000000" in lines[1], len(lines)] == [True, True, 2]
+
+
+def no_requests(video_id):
+    raise AssertionError(f"asked YouTube for {video_id}")
+
+
+def test_raw_is_saved_before_the_transcript(monkeypatch):
+    c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
+    c.save_videos([VIDEO])
+    real_write = Collection.write_transcript
+
+    def write_checking_raw(self, *args, **kwargs):
+        assert (store.RAW / "ch" / f"{VIDEO.id}.json").exists()
+        real_write(self, *args, **kwargs)
+    monkeypatch.setattr(Collection, "write_transcript", write_checking_raw)
+    monkeypatch.setattr(acquire, "fetch_captions", lambda vid: ("auto", [Segment(0, "hi")]))
+    cli.update(c, only=True)
+    assert list(c.transcript_files()) == [VIDEO.id]
+
+
+def test_raw_snapshot_means_no_request(monkeypatch):
+    c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
+    c.save_videos([VIDEO])
+    c.save_raw(VIDEO, "manual", [Segment(0, "from raw"), Segment(31, "second")])
+    raw_path = store.RAW / "ch" / f"{VIDEO.id}.json"
+    data = json.loads(raw_path.read_text())
+    raw_path.write_text(json.dumps({**data, "fetched_at": "2026-03-04T05:06:07+08:00"}))
+    monkeypatch.setattr(acquire, "fetch_captions", no_requests)
+    cli.update(c, only=True)
+    fm, body = process.read(next(iter(c.transcript_files().values())))
+    assert fm["fetched_at"] == "2026-03-04" and fm["transcript_source"] == "manual"
+    assert "[00:00] from raw\n[00:31] second" in body
+    assert request_guard.used_today(request_guard.state()) == 0
+
+
+@pytest.mark.parametrize("content", ["{not json", '{"video_id": "abcdefghijk", "captions": "auto", "segments": []}',
+                                     '{"video_id": "zzzzzzzzzzz", "captions": "auto", "segments": [{"start": 0, "text": "x"}]}',
+                                     '{"captions": "auto"}', "[]"])
+def test_broken_raw_falls_back_to_fetching(monkeypatch, content):
+    c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
+    c.save_videos([VIDEO])
+    (store.RAW / "ch").mkdir(parents=True)
+    (store.RAW / "ch" / f"{VIDEO.id}.json").write_text(content)
+    assert c.load_raw(VIDEO.id) is None
+    calls = []
+    monkeypatch.setattr(acquire, "fetch_captions", lambda vid: calls.append(vid) or ("auto", [Segment(0, "fresh")]))
+    cli.update(c, only=True)
+    assert calls == [VIDEO.id]
+    assert c.load_raw(VIDEO.id)[1][0].text == "fresh"  # replaced by a good snapshot
+
+
+def test_existing_transcript_is_not_refetched(monkeypatch):
+    c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
+    c.save_videos([VIDEO])
+    c.write_transcript(VIDEO, "auto", [Segment(0, "hi")])
+    monkeypatch.setattr(acquire, "fetch_captions", no_requests)
+    cli.update(c, only=True)
+
+
+def test_rebuilt_transcript_replaces_old_name():
+    c = Collection.create("ch", "https://www.youtube.com/@ch", "Ch")
+    c.write_transcript(Video(id=VIDEO.id, title="Old title"), "auto", [Segment(0, "hi")])
+    c.write_transcript(VIDEO, "auto", [Segment(0, "hi")])
+    assert [p.name for p in c.transcript_files().values()] == ["2026-01-02-hello-world-abcdefghijk.md"]
